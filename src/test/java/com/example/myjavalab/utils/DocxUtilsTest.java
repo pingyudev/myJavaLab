@@ -126,29 +126,24 @@ public class DocxUtilsTest {
             System.out.println("📝 临时文档labelA内容: '" + tempLabelAContent + "'");
             System.out.println("📝 结果文档labelA内容: '" + resultLabelAContent + "'");
             
-            // 验证labelA内容在复制前后保持一致（除了序号变化）
-            // 移除序号进行比较
-            String originalContentWithoutNumber = removeNumberFromContent(originalLabelAContent);
-            String tempContentWithoutNumber = removeNumberFromContent(tempLabelAContent);
-            String resultContentWithoutNumber = removeNumberFromContent(resultLabelAContent);
-            
-            assertEquals(originalContentWithoutNumber, tempContentWithoutNumber, "临时文档中labelA内容（除序号）应该与原始文档一致");
-            assertEquals(originalContentWithoutNumber, resultContentWithoutNumber, "结果文档中labelA内容（除序号）应该与原始文档一致");
+            // 验证labelA内容在复制前后保持一致
+            assertEquals(originalLabelAContent, tempLabelAContent, "临时文档中labelA内容应该与原始文档一致");
+            assertEquals(originalLabelAContent, resultLabelAContent, "结果文档中labelA内容应该与原始文档一致");
             
             // 验证result_introduction里labelA和labelB内容一致性
             String resultLabelBContent = DocxUtils.getBookmarkContentFromFile(resultDocPath, "labelB");
             System.out.println("📝 结果文档labelB内容: '" + resultLabelBContent + "'");
             
-            assertEquals(originalContentWithoutNumber, resultLabelBContent, "结果文档中labelB内容应该与原始labelA内容（除序号）一致");
+            assertEquals(originalLabelAContent, resultLabelBContent, "结果文档中labelB内容应该与原始labelA内容一致");
             
             // 验证目标文件中labelA的内容和源文件labelA中的内容一致
             String originalLabelAContentInOriginalDoc = DocxUtils.getBookmarkContentFromFile(originalDocPath, "labelA");
             String resultLabelAContentInResultDoc = DocxUtils.getBookmarkContentFromFile(resultDocPath, "labelA");
 
             assertEquals(
-                removeNumberFromContent(originalLabelAContentInOriginalDoc),
-                removeNumberFromContent(resultLabelAContentInResultDoc),
-                "目标文件中labelA的内容（除序号）应该和源文件labelA中的内容一致"
+                originalLabelAContentInOriginalDoc,
+                resultLabelAContentInResultDoc,
+                "目标文件中labelA的内容应该和源文件labelA中的内容一致"
             );
 
             assertNotNull(resultLabelAContent, "结果文档中labelA内容不应为空");
@@ -156,9 +151,9 @@ public class DocxUtilsTest {
 
             // 验证目标文件中的labelA内容和目标文件中的labelB内容一致
             assertEquals(
-                removeNumberFromContent(resultLabelAContent),
-                removeNumberFromContent(resultLabelBContent),
-                "结果文档中labelA和labelB的内容（除序号）应该一致"
+                resultLabelAContent,
+                resultLabelBContent,
+                "结果文档中labelA和labelB的内容应该一致"
             );
             System.out.println("✅ 测试用例2通过: 成功将labelA的内容复制给labelB，内容验证通过");
             
@@ -236,15 +231,6 @@ public class DocxUtilsTest {
         }
     }
     
-    /**
-     * 从内容中移除序号（辅助方法）
-     */
-    private String removeNumberFromContent(String content) {
-        if (content != null && content.matches("^\\d+\\..*")) {
-            return content.substring(content.indexOf('.') + 1).trim();
-        }
-        return content;
-    }
     
     @Test
     void testNumberingStylePreservation() {

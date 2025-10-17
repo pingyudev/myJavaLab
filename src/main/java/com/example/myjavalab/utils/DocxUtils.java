@@ -74,14 +74,8 @@ public class DocxUtils {
                 throw new IllegalArgumentException("书签 " + bookmarkA + " 未找到或内容为空");
             }
             
-            // 移除序号（如果存在）
-            String contentWithoutNumber = removeNumberFromContent(contentA);
-            
-            // 获取labelB的编号（从段落中提取）
-            int labelBNumber = getBookmarkNumber(document, bookmarkB);
-            
             // 设置书签B的内容并保持编号样式
-            setBookmarkContentWithNumbering(document, bookmarkB, contentWithoutNumber, labelBNumber);
+            setBookmarkContent(document, bookmarkB, contentA);
             
             // 保存文档
             try (FileOutputStream fos = new FileOutputStream(outputPath)) {
@@ -90,29 +84,6 @@ public class DocxUtils {
         }
     }
     
-    /**
-     * 获取书签的编号
-     */
-    private static int getBookmarkNumber(XWPFDocument document, String bookmarkName) {
-        List<XWPFParagraph> paragraphs = document.getParagraphs();
-        
-        for (XWPFParagraph paragraph : paragraphs) {
-            if (containsBookmark(paragraph, bookmarkName)) {
-                return extractNumberFromParagraph(paragraph);
-            }
-        }
-        return 1; // 默认编号
-    }
-    
-    /**
-     * 从内容中移除序号
-     */
-    private static String removeNumberFromContent(String content) {
-        if (content != null && content.matches("^\\d+\\..*")) {
-            return content.substring(content.indexOf('.') + 1).trim();
-        }
-        return content;
-    }
     
     /**
      * 查找书签在文档中的位置
@@ -193,18 +164,12 @@ public class DocxUtils {
             // 复制目标段落的样式到新段落
             copyParagraphStyle(targetParagraph, newParagraph);
             
-            // 获取目标段落的编号
-            int targetNumber = extractNumberFromParagraph(targetParagraph);
-            
             // 只添加initialString的内容，不手动添加序号（让Word编号样式自动处理）
             XWPFRun spaceRun = newParagraph.createRun();
             spaceRun.setText("initialString"); // 4个initialString
             
             // 在新段落中创建书签（包围initialString内容）
             createParagraphBookmark(newParagraph, bookmarkName);
-            
-            // 只更新目标段落的编号样式属性，不重建内容（保持书签结构）
-            updateParagraphNumberingStyleOnly(targetParagraph, targetNumber + 1);
             
             // 获取目标段落的XML节点
             CTP targetCTP = targetParagraph.getCTP();
@@ -217,7 +182,7 @@ public class DocxUtils {
             targetCTP.getDomNode().getParentNode().insertBefore(
                 newCTP.getDomNode(), targetCTP.getDomNode());
                 
-            System.out.println("✅ 新段落已插入，书签: " + bookmarkName + "，编号: " + targetNumber);
+            System.out.println("✅ 新段落已插入，书签: " + bookmarkName);
                 
         } catch (Exception e) {
             throw new IllegalStateException("在目标段落之前插入失败: " + e.getMessage(), e);
@@ -268,7 +233,7 @@ public class DocxUtils {
                 }
             } else {
                 // 如果源段落没有编号样式，为目标段落设置默认编号样式
-                setParagraphNumberingStyle(targetParagraph, 1);
+                setParagraphNumberingStyle(targetParagraph);
             }
             
         } catch (Exception e) {
@@ -277,67 +242,13 @@ public class DocxUtils {
     }
     
     
-    /**
-     * 只更新段落的编号样式属性，不重建内容（保持书签结构完整）
-     */
-    private static void updateParagraphNumberingStyleOnly(XWPFParagraph paragraph, int newNumber) {
-        try {
-            // 获取段落的底层XML对象
-            CTP ctp = paragraph.getCTP();
-            
-            // 设置段落为编号列表
-            if (ctp.getPPr() == null) {
-                ctp.addNewPPr();
-            }
-            
-            // 创建或更新编号属性
-            CTNumPr numPr;
-            if (ctp.getPPr().getNumPr() == null) {
-                numPr = ctp.getPPr().addNewNumPr();
-            } else {
-                numPr = ctp.getPPr().getNumPr();
-            }
-            
-            // 设置编号ID（使用默认的编号样式）
-            if (numPr.getNumId() == null) {
-                numPr.addNewNumId();
-            }
-            numPr.getNumId().setVal(BigInteger.valueOf(1)); // 使用编号样式1
-            
-            // 设置编号级别
-            if (numPr.getIlvl() == null) {
-                numPr.addNewIlvl();
-            }
-            numPr.getIlvl().setVal(BigInteger.valueOf(0)); // 使用级别0
-            
-            System.out.println("✅ 段落编号样式已更新为: " + newNumber);
-            
-        } catch (Exception e) {
-            System.err.println("更新段落编号样式失败: " + e.getMessage());
-        }
-    }
     
-    /**
-     * 从段落中提取序号
-     */
-    private static int extractNumberFromParagraph(XWPFParagraph paragraph) {
-        String text = paragraph.getText();
-        if (text != null && text.matches("^\\d+\\..*")) {
-            try {
-                int number = Integer.parseInt(text.substring(0, text.indexOf('.')));
-                return number;
-            } catch (NumberFormatException e) {
-                return 1; // 默认序号
-            }
-        }
-        return 1; // 默认序号
-    }
     
     
     /**
      * 设置段落的编号样式
      */
-    private static void setParagraphNumberingStyle(XWPFParagraph paragraph, int number) {
+    private static void setParagraphNumberingStyle(XWPFParagraph paragraph) {
         try {
             // 获取段落的底层XML对象
             CTP ctp = paragraph.getCTP();
@@ -359,10 +270,7 @@ public class DocxUtils {
             ilvl.setVal(BigInteger.valueOf(0)); // 使用级别0
             
         } catch (Exception e) {
-            System.err.println("设置编号样式失败，回退到文本序号: " + e.getMessage());
-            // 如果设置编号样式失败，回退到文本序号
-            XWPFRun numberRun = paragraph.createRun();
-            numberRun.setText(number + ". ");
+            System.err.println("设置编号样式失败: " + e.getMessage());
         }
     }
     
@@ -875,7 +783,7 @@ public class DocxUtils {
      * 为书签设置内容并保持编号样式
      * 修复：使用DOM操作保持书签结构，避免破坏bookmarkStart和bookmarkEnd位置
      */
-    private static void setBookmarkContentWithNumbering(XWPFDocument document, String bookmarkName, String content, int number) {
+    private static void setBookmarkContent(XWPFDocument document, String bookmarkName, String content) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
         
         for (XWPFParagraph paragraph : paragraphs) {
@@ -887,9 +795,6 @@ public class DocxUtils {
                         System.err.println("无法找到书签ID: " + bookmarkName);
                         break;
                     }
-                    
-                    // 设置段落为编号列表样式
-                    setParagraphNumberingStyle(paragraph, number);
                     
                     // 使用DOM操作替换内容，保持书签结构
                     replaceContentBetweenBookmarks(paragraph, bookmarkId, content);
@@ -993,7 +898,7 @@ public class DocxUtils {
     }
     
     /**
-     * 检查段落是否使用编号样式（包括Word编号样式和文本编号）
+     * 检查段落是否使用编号样式
      */
     private static boolean isParagraphUsingNumberingStyle(XWPFDocument document, String bookmarkName) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
@@ -1005,12 +910,6 @@ public class DocxUtils {
                     CTP ctp = paragraph.getCTP();
                     if (ctp.getPPr() != null && ctp.getPPr().getNumPr() != null) {
                         return true; // 使用了Word编号样式
-                    }
-                    
-                    // 检查文本编号格式
-                    String text = paragraph.getText();
-                    if (text != null && text.matches("^\\d+\\..*")) {
-                        return true; // 使用了文本编号格式
                     }
                 } catch (Exception e) {
                     // 如果无法检查，返回false

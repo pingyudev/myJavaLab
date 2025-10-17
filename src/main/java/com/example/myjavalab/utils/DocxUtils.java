@@ -207,7 +207,7 @@ public class DocxUtils {
             spaceRun.setText("initialString"); // 4个initialString
             
             // 在新段落中创建书签（包围initialString内容）
-            createBookmark(newParagraph, bookmarkName);
+            createParagraphBookmark(newParagraph, bookmarkName);
             
             // 只更新目标段落的编号样式属性，不重建内容（保持书签结构）
             updateParagraphNumberingStyleOnly(targetParagraph, targetNumber + 1);
@@ -229,7 +229,7 @@ public class DocxUtils {
             System.err.println("在目标段落之前插入失败: " + e.getMessage());
             // 如果插入失败，至少确保书签被创建
             XWPFParagraph fallbackParagraph = document.createParagraph();
-            createBookmark(fallbackParagraph, bookmarkName);
+            createParagraphBookmark(fallbackParagraph, bookmarkName);
         }
     }
     
@@ -389,7 +389,7 @@ public class DocxUtils {
      * 在段落中创建书签（包围整个段落内容）
      * 修复：使用DOM操作确保书签正确包围段落内容
      */
-    private static void createBookmark(XWPFParagraph paragraph, String bookmarkName) {
+    private static void createParagraphBookmark(XWPFParagraph paragraph, String bookmarkName) {
         try {
             CTP ctp = paragraph.getCTP();
             BigInteger bookmarkId = generateUniqueBookmarkId();

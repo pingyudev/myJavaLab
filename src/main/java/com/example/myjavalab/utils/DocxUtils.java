@@ -4,7 +4,9 @@ import org.apache.poi.xwpf.usermodel.*;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.xmlbeans.XmlException;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTBookmark;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTDecimalNumber;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTMarkupRange;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTNumPr;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
 
 import java.io.*;
@@ -263,14 +265,14 @@ public class DocxUtils {
             }
             
             // 创建编号属性
-            var numPr = ctp.getPPr().addNewNumPr();
+            CTNumPr numPr = ctp.getPPr().addNewNumPr();
             
             // 设置编号ID（使用默认的编号样式）
-            var numId = numPr.addNewNumId();
+            CTDecimalNumber numId = numPr.addNewNumId();
             numId.setVal(BigInteger.valueOf(1)); // 使用编号样式1
             
             // 设置编号级别
-            var ilvl = numPr.addNewIlvl();
+            CTDecimalNumber ilvl = numPr.addNewIlvl();
             ilvl.setVal(BigInteger.valueOf(0)); // 使用级别0
             
         } catch (Exception e) {

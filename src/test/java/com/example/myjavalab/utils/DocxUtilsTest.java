@@ -20,7 +20,7 @@ public class DocxUtilsTest {
 
     @BeforeEach
     void setUp() {
-        testDir = "src/main/resources/doc";
+        testDir = "src/test/resources/test-output";
         originalDocPath = "src/main/resources/doc/debug_introduction.docx";
         tempDocPath = testDir + "/temp_introduction.docx";
         resultDocPath = testDir + "/result_introduction.docx";

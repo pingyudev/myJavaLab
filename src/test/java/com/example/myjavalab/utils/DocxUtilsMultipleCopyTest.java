@@ -64,6 +64,8 @@ public class DocxUtilsMultipleCopyTest {
             System.out.println("📊 文件大小: " + fileSize + " bytes");
             
         } catch (Exception e) {
+            System.err.println("测试失败详情: " + e.getMessage());
+            e.printStackTrace();
             fail("多次复制书签内容测试失败: " + e.getMessage());
         }
     }

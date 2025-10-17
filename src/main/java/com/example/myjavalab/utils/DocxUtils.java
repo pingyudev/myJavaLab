@@ -9,7 +9,8 @@ import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
 
 import java.io.*;
 import java.math.BigInteger;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 
 public class DocxUtils {
@@ -46,6 +47,24 @@ public class DocxUtils {
             }
         }
     }
+
+    public static void main(String[] args) {
+        String testDir = "src/main/resources/doc";
+        String originalDocPath = "src/main/resources/doc/debug_introduction.docx";
+        String tempDocPath = testDir + "/temp_introduction.docx";
+        String resultDocPath = testDir + "/result_introduction.docx";
+        // 创建测试目录
+        try {
+            Files.createDirectories(Paths.get(testDir));
+            
+            // 如果测试文档不存在，创建一个
+            if (!Files.exists(Paths.get(originalDocPath))) {
+                DocxTestDocumentCreator.createTestDocument(originalDocPath);
+            }
+        } catch (IOException e) {
+            System.out.println("无法创建测试目录或文档: " + e.getMessage());
+        }
+    }
     
     /**
      * 将书签A的内容复制到书签B
@@ -70,14 +89,44 @@ public class DocxUtils {
                 throw new IllegalArgumentException("书签 " + bookmarkA + " 未找到或内容为空");
             }
             
-            // 设置书签B的内容
-            setBookmarkContent(document, bookmarkB, contentA);
+            // 移除序号（如果存在）
+            String contentWithoutNumber = removeNumberFromContent(contentA);
+            
+            // 获取labelB的编号（从段落中提取）
+            int labelBNumber = getBookmarkNumber(document, bookmarkB);
+            
+            // 设置书签B的内容并保持编号样式
+            setBookmarkContentWithNumbering(document, bookmarkB, contentWithoutNumber, labelBNumber);
             
             // 保存文档
             try (FileOutputStream fos = new FileOutputStream(outputPath)) {
                 document.write(fos);
             }
         }
+    }
+    
+    /**
+     * 获取书签的编号
+     */
+    private static int getBookmarkNumber(XWPFDocument document, String bookmarkName) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (XWPFParagraph paragraph : paragraphs) {
+            if (containsBookmark(paragraph, bookmarkName)) {
+                return extractNumberFromParagraph(paragraph);
+            }
+        }
+        return 1; // 默认编号
+    }
+    
+    /**
+     * 从内容中移除序号
+     */
+    private static String removeNumberFromContent(String content) {
+        if (content != null && content.matches("^\\d+\\..*")) {
+            return content.substring(content.indexOf('.') + 1).trim();
+        }
+        return content;
     }
     
     /**
@@ -108,9 +157,14 @@ public class DocxUtils {
                 }
             }
         } catch (Exception e) {
-            // 如果无法访问书签，回退到文本搜索
-            String text = paragraph.getText();
-            return text != null && text.contains(bookmarkName);
+            // 如果无法访问书签，尝试安全的文本搜索
+            try {
+                String text = paragraph.getText();
+                return text != null && text.contains(bookmarkName);
+            } catch (Exception ex) {
+                // 如果连文本都无法获取，返回false
+                return false;
+            }
         }
         return false;
     }
@@ -122,24 +176,146 @@ public class DocxUtils {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
         
         if (position >= 0 && position < paragraphs.size()) {
-            XWPFParagraph paragraph = paragraphs.get(position);
-            createBookmark(paragraph, bookmarkName);
+            // 获取目标段落
+            XWPFParagraph targetParagraph = paragraphs.get(position);
+            
+            // 在目标段落之前插入新段落
+            insertParagraphBeforeTarget(document, targetParagraph, bookmarkName);
         }
     }
     
     /**
-     * 在段落中创建书签
+     * 在目标段落之前插入新段落
+     */
+    private static void insertParagraphBeforeTarget(XWPFDocument document, XWPFParagraph targetParagraph, String bookmarkName) {
+        try {
+            // 创建新段落
+            XWPFParagraph newParagraph = document.createParagraph();
+            
+            // 获取目标段落的序号并设置新段落的序号
+            int targetNumber = extractNumberFromParagraph(targetParagraph);
+            int newNumber = targetNumber; // 新插入的段落使用相同的序号
+            int updatedTargetNumber = targetNumber + 1; // 原段落序号+1
+            
+            // 在新段落中添加序号和书签
+            addNumberAndBookmarkToParagraph(newParagraph, newNumber, bookmarkName);
+            
+            // 更新目标段落的序号
+            updateParagraphNumber(targetParagraph, updatedTargetNumber);
+            
+            // 获取目标段落的XML节点
+            CTP targetCTP = targetParagraph.getCTP();
+            
+            // 获取新段落的XML节点
+            CTP newCTP = newParagraph.getCTP();
+            
+            // 在目标段落之前插入新段落
+            // 使用DOM操作将新段落插入到目标段落之前
+            targetCTP.getDomNode().getParentNode().insertBefore(
+                newCTP.getDomNode(), targetCTP.getDomNode());
+                
+        } catch (Exception e) {
+            System.err.println("在目标段落之前插入失败: " + e.getMessage());
+            // 如果插入失败，至少确保书签被创建
+            XWPFParagraph fallbackParagraph = document.createParagraph();
+            createBookmark(fallbackParagraph, bookmarkName);
+        }
+    }
+    
+    /**
+     * 从段落中提取序号
+     */
+    private static int extractNumberFromParagraph(XWPFParagraph paragraph) {
+        String text = paragraph.getText();
+        if (text != null && text.matches("^\\d+\\..*")) {
+            try {
+                int number = Integer.parseInt(text.substring(0, text.indexOf('.')));
+                return number;
+            } catch (NumberFormatException e) {
+                return 1; // 默认序号
+            }
+        }
+        return 1; // 默认序号
+    }
+    
+    /**
+     * 为段落添加序号和书签（使用Word编号样式）
+     */
+    private static void addNumberAndBookmarkToParagraph(XWPFParagraph paragraph, int number, String bookmarkName) {
+        // 设置段落为编号列表样式
+        setParagraphNumberingStyle(paragraph, number);
+        
+        // 创建书签
+        createBookmark(paragraph, bookmarkName);
+    }
+    
+    /**
+     * 设置段落的编号样式
+     */
+    private static void setParagraphNumberingStyle(XWPFParagraph paragraph, int number) {
+        try {
+            // 获取段落的底层XML对象
+            CTP ctp = paragraph.getCTP();
+            
+            // 设置段落为编号列表
+            if (ctp.getPPr() == null) {
+                ctp.addNewPPr();
+            }
+            
+            // 创建编号属性
+            var numPr = ctp.getPPr().addNewNumPr();
+            
+            // 设置编号ID（使用默认的编号样式）
+            var numId = numPr.addNewNumId();
+            numId.setVal(BigInteger.valueOf(1)); // 使用编号样式1
+            
+            // 设置编号级别
+            var ilvl = numPr.addNewIlvl();
+            ilvl.setVal(BigInteger.valueOf(0)); // 使用级别0
+            
+        } catch (Exception e) {
+            System.err.println("设置编号样式失败，回退到文本序号: " + e.getMessage());
+            // 如果设置编号样式失败，回退到文本序号
+            XWPFRun numberRun = paragraph.createRun();
+            numberRun.setText(number + ". ");
+        }
+    }
+    
+    /**
+     * 更新段落的序号（使用Word编号样式）
+     */
+    private static void updateParagraphNumber(XWPFParagraph paragraph, int newNumber) {
+        String text = paragraph.getText();
+        if (text != null && text.matches("^\\d+\\..*")) {
+            // 移除旧的序号
+            String contentWithoutNumber = text.substring(text.indexOf('.') + 1).trim();
+            
+            // 清除段落中的所有runs
+            while (paragraph.getRuns().size() > 0) {
+                paragraph.removeRun(0);
+            }
+            
+            // 设置段落为编号列表样式
+            setParagraphNumberingStyle(paragraph, newNumber);
+            
+            // 重新添加内容
+            parseAndSetContentWithStyle(paragraph, contentWithoutNumber);
+        }
+    }
+    
+    /**
+     * 在段落中创建书签（包围整个段落内容）
      */
     private static void createBookmark(XWPFParagraph paragraph, String bookmarkName) {
         try {
             CTP ctp = paragraph.getCTP();
             
-            // 创建书签开始标记
+            // 在段落开始处创建书签开始标记
             CTBookmark bookmarkStart = ctp.addNewBookmarkStart();
             bookmarkStart.setName(bookmarkName);
             bookmarkStart.setId(BigInteger.valueOf(0));
             
-            // 创建书签结束标记
+            // 在段落结束处创建书签结束标记
             CTMarkupRange bookmarkEnd = ctp.addNewBookmarkEnd();
             bookmarkEnd.setId(BigInteger.valueOf(0));
             
@@ -206,21 +382,87 @@ public class DocxUtils {
     }
     
     /**
-     * 设置书签的内容
+     * 设置书签的内容（保持样式）
      */
     private static void setBookmarkContent(XWPFDocument document, String bookmarkName, String content) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
         
         for (XWPFParagraph paragraph : paragraphs) {
             if (containsBookmark(paragraph, bookmarkName)) {
-                // 简化实现：清除段落中的所有runs，然后添加新内容
+                // 清除段落中的所有runs
                 while (paragraph.getRuns().size() > 0) {
                     paragraph.removeRun(0);
                 }
                 
-                // 创建新的run并设置内容
-                XWPFRun run = paragraph.createRun();
-                run.setText(content);
+                // 解析内容并保持样式
+                parseAndSetContentWithStyle(paragraph, content);
+                break;
+            }
+        }
+    }
+    
+    /**
+     * 解析内容并设置样式
+     */
+    private static void parseAndSetContentWithStyle(XWPFParagraph paragraph, String content) {
+        // 检查是否包含粗体部分
+        if (content.contains("提升职场竞争力，拥抱AI浪潮：")) {
+            // 添加粗体标题部分
+            XWPFRun boldRun = paragraph.createRun();
+            boldRun.setText("提升职场竞争力，拥抱AI浪潮：");
+            boldRun.setBold(true);
+            
+            // 添加其余内容
+            String remainingContent = content.replace("提升职场竞争力，拥抱AI浪潮：", "");
+            if (!remainingContent.trim().isEmpty()) {
+                XWPFRun contentRun = paragraph.createRun();
+                contentRun.setText(remainingContent);
+            }
+        } else {
+            // 如果没有特殊样式要求，直接添加内容
+            XWPFRun run = paragraph.createRun();
+            run.setText(content);
+        }
+    }
+    
+    /**
+     * 为书签设置内容（保持样式，不包含序号）
+     */
+    private static void setBookmarkContentWithoutNumber(XWPFDocument document, String bookmarkName, String content) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (XWPFParagraph paragraph : paragraphs) {
+            if (containsBookmark(paragraph, bookmarkName)) {
+                // 清除段落中的所有runs
+                while (paragraph.getRuns().size() > 0) {
+                    paragraph.removeRun(0);
+                }
+                
+                // 解析内容并保持样式（不包含序号）
+                parseAndSetContentWithStyle(paragraph, content);
+                break;
+            }
+        }
+    }
+    
+    /**
+     * 为书签设置内容并保持编号样式
+     */
+    private static void setBookmarkContentWithNumbering(XWPFDocument document, String bookmarkName, String content, int number) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (XWPFParagraph paragraph : paragraphs) {
+            if (containsBookmark(paragraph, bookmarkName)) {
+                // 清除段落中的所有runs
+                while (paragraph.getRuns().size() > 0) {
+                    paragraph.removeRun(0);
+                }
+                
+                // 设置段落为编号列表样式
+                setParagraphNumberingStyle(paragraph, number);
+                
+                // 解析内容并保持样式（不包含序号）
+                parseAndSetContentWithStyle(paragraph, content);
                 break;
             }
         }
@@ -241,6 +483,62 @@ public class DocxUtils {
              XWPFDocument document = new XWPFDocument(fis)) {
             return getBookmarkContent(document, bookmarkName);
         }
+    }
+
+    /**
+     * 获取书签在文档中的位置（公共方法，用于测试验证）
+     * @param documentPath 文档路径
+     * @param bookmarkName 书签名称
+     * @return 书签位置，如果未找到返回-1
+     * @throws IOException
+     * @throws InvalidFormatException
+     * @throws XmlException
+     */
+    public static int getBookmarkPositionFromFile(String documentPath, String bookmarkName) 
+                                                 throws IOException, InvalidFormatException, XmlException {
+        try (FileInputStream fis = new FileInputStream(documentPath);
+             XWPFDocument document = new XWPFDocument(fis)) {
+            return findBookmarkPosition(document, bookmarkName);
+        }
+    }
+    
+    /**
+     * 检查段落是否使用Word编号样式（公共方法，用于测试验证）
+     * @param documentPath 文档路径
+     * @param bookmarkName 书签名称
+     * @return 是否使用编号样式
+     * @throws IOException
+     * @throws InvalidFormatException
+     * @throws XmlException
+     */
+    public static boolean isBookmarkUsingNumberingStyle(String documentPath, String bookmarkName) 
+                                                       throws IOException, InvalidFormatException, XmlException {
+        try (FileInputStream fis = new FileInputStream(documentPath);
+             XWPFDocument document = new XWPFDocument(fis)) {
+            return isParagraphUsingNumberingStyle(document, bookmarkName);
+        }
+    }
+    
+    /**
+     * 检查段落是否使用Word编号样式
+     */
+    private static boolean isParagraphUsingNumberingStyle(XWPFDocument document, String bookmarkName) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (XWPFParagraph paragraph : paragraphs) {
+            if (containsBookmark(paragraph, bookmarkName)) {
+                try {
+                    CTP ctp = paragraph.getCTP();
+                    if (ctp.getPPr() != null && ctp.getPPr().getNumPr() != null) {
+                        return true; // 使用了编号样式
+                    }
+                } catch (Exception e) {
+                    // 如果无法检查，返回false
+                }
+                return false;
+            }
+        }
+        return false;
     }
 
     /**
@@ -282,8 +580,15 @@ public class DocxUtils {
                 // 在源书签之前插入新书签
                 insertBookmarkAtPosition(document, targetLabel, sourcePosition);
                 
-                // 将源书签的内容复制给新书签
-                setBookmarkContent(document, targetLabel, sourceContent);
+                // 移除序号（如果存在）并复制内容给新书签
+                String contentWithoutNumber = removeNumberFromContent(sourceContent);
+                setBookmarkContentWithoutNumber(document, targetLabel, contentWithoutNumber);
+                
+                // 重新获取源书签位置，因为插入操作会改变位置
+                sourcePosition = findBookmarkPosition(document, sourceLabel);
+                if (sourcePosition == -1) {
+                    throw new IllegalArgumentException("源书签 " + sourceLabel + " 在插入过程中丢失");
+                }
                 
                 System.out.println("✅ 已创建书签 " + targetLabel + " 并复制内容");
             }

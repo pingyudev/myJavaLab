@@ -48,18 +48,41 @@ public class DocxUtilsTest {
     //     } catch (IOException e) {
     //         System.err.println("清理测试文件失败: " + e.getMessage());
     //     }
-    // }
+    }
 
     @Test
     void testInsertBookmarkBefore() {
         try {
+            // 获取原始文档中labelA的位置
+            int originalLabelAPosition = DocxUtils.getBookmarkPositionFromFile(originalDocPath, "labelA");
+            System.out.println("📝 原始文档中labelA位置: " + originalLabelAPosition);
+            
             // 测试用例1: 在文件中书签labelA之前插入labelB
             DocxUtils.insertBookmarkBefore(originalDocPath, tempDocPath, "labelA", "labelB");
             
             // 验证文件是否创建成功
             assertTrue(Files.exists(Paths.get(tempDocPath)), "临时文档应该被创建");
             
-            System.out.println("✅ 测试用例1通过: 在labelA之前成功插入labelB");
+            // 验证插入后的位置顺序
+            int newLabelAPosition = DocxUtils.getBookmarkPositionFromFile(tempDocPath, "labelA");
+            int newLabelBPosition = DocxUtils.getBookmarkPositionFromFile(tempDocPath, "labelB");
+            
+            System.out.println("📝 插入后labelA位置: " + newLabelAPosition);
+            System.out.println("📝 插入后labelB位置: " + newLabelBPosition);
+            
+            // 验证labelB确实插入到了labelA之前
+            assertTrue(newLabelBPosition < newLabelAPosition, 
+                "labelB应该插入到labelA之前，但实际位置: labelB=" + newLabelBPosition + ", labelA=" + newLabelAPosition);
+            
+            // 验证labelA的位置向后移动了一位（因为插入了新段落）
+            assertEquals(originalLabelAPosition + 1, newLabelAPosition, 
+                "labelA的位置应该向后移动一位");
+            
+            // 验证labelB的位置就是原来labelA的位置
+            assertEquals(originalLabelAPosition, newLabelBPosition, 
+                "labelB应该插入到原来labelA的位置");
+            
+            System.out.println("✅ 测试用例1通过: 在labelA之前成功插入labelB，位置验证通过");
             
         } catch (Exception e) {
             fail("测试用例1失败: " + e.getMessage());
@@ -89,15 +112,20 @@ public class DocxUtilsTest {
             System.out.println("📝 临时文档labelA内容: '" + tempLabelAContent + "'");
             System.out.println("📝 结果文档labelA内容: '" + resultLabelAContent + "'");
             
-            // 验证labelA内容在复制前后保持一致
-            assertEquals(originalLabelAContent, tempLabelAContent, "临时文档中labelA内容应该与原始文档一致");
-            assertEquals(originalLabelAContent, resultLabelAContent, "结果文档中labelA内容应该与原始文档一致");
+            // 验证labelA内容在复制前后保持一致（除了序号变化）
+            // 移除序号进行比较
+            String originalContentWithoutNumber = removeNumberFromContent(originalLabelAContent);
+            String tempContentWithoutNumber = removeNumberFromContent(tempLabelAContent);
+            String resultContentWithoutNumber = removeNumberFromContent(resultLabelAContent);
+            
+            assertEquals(originalContentWithoutNumber, tempContentWithoutNumber, "临时文档中labelA内容（除序号）应该与原始文档一致");
+            assertEquals(originalContentWithoutNumber, resultContentWithoutNumber, "结果文档中labelA内容（除序号）应该与原始文档一致");
             
             // 验证result_introduction里labelA和labelB内容一致性
             String resultLabelBContent = DocxUtils.getBookmarkContentFromFile(resultDocPath, "labelB");
             System.out.println("📝 结果文档labelB内容: '" + resultLabelBContent + "'");
             
-            assertEquals(originalLabelAContent, resultLabelBContent, "结果文档中labelB内容应该与原始labelA内容一致");
+            assertEquals(originalContentWithoutNumber, resultLabelBContent, "结果文档中labelB内容应该与原始labelA内容（除序号）一致");
             
             System.out.println("✅ 测试用例2通过: 成功将labelA的内容复制给labelB，内容验证通过");
             
@@ -172,6 +200,75 @@ public class DocxUtilsTest {
             
         } catch (Exception e) {
             fail("文件创建和验证测试失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 从内容中移除序号（辅助方法）
+     */
+    private String removeNumberFromContent(String content) {
+        if (content != null && content.matches("^\\d+\\..*")) {
+            return content.substring(content.indexOf('.') + 1).trim();
+        }
+        return content;
+    }
+    
+    @Test
+    void testNumberingStylePreservation() {
+        try {
+            System.out.println("开始测试编号样式保持...");
+            
+            // 步骤1: 在labelA之前插入labelB
+            DocxUtils.insertBookmarkBefore(originalDocPath, tempDocPath, "labelA", "labelB");
+            
+            // 步骤2: 将labelA的内容复制给labelB
+            DocxUtils.copyBookmarkContent(tempDocPath, resultDocPath, "labelA", "labelB");
+            
+            // 步骤3: 验证编号样式
+            boolean labelBHasNumbering = DocxUtils.isBookmarkUsingNumberingStyle(resultDocPath, "labelB");
+            boolean labelAHasNumbering = DocxUtils.isBookmarkUsingNumberingStyle(resultDocPath, "labelA");
+            
+            System.out.println("📝 labelB是否使用编号样式: " + labelBHasNumbering);
+            System.out.println("📝 labelA是否使用编号样式: " + labelAHasNumbering);
+            
+            // 验证labelB使用编号样式
+            assertTrue(labelBHasNumbering, "labelB应该使用Word编号样式");
+            
+            // 验证labelA使用编号样式
+            assertTrue(labelAHasNumbering, "labelA应该使用Word编号样式");
+            
+            System.out.println("✅ 编号样式保持测试通过");
+            
+        } catch (Exception e) {
+            fail("编号样式保持测试失败: " + e.getMessage());
+        }
+    }
+    
+    @Test
+    void testNumberingStyleAfterInsertion() {
+        try {
+            System.out.println("开始测试插入后的编号样式...");
+            
+            // 在labelA之前插入labelB
+            DocxUtils.insertBookmarkBefore(originalDocPath, tempDocPath, "labelA", "labelB");
+            
+            // 验证插入后labelB是否使用编号样式
+            boolean labelBHasNumbering = DocxUtils.isBookmarkUsingNumberingStyle(tempDocPath, "labelB");
+            boolean labelAHasNumbering = DocxUtils.isBookmarkUsingNumberingStyle(tempDocPath, "labelA");
+            
+            System.out.println("📝 插入后labelB是否使用编号样式: " + labelBHasNumbering);
+            System.out.println("📝 插入后labelA是否使用编号样式: " + labelAHasNumbering);
+            
+            // 验证labelB使用编号样式
+            assertTrue(labelBHasNumbering, "插入后labelB应该使用Word编号样式");
+            
+            // 验证labelA使用编号样式
+            assertTrue(labelAHasNumbering, "插入后labelA应该使用Word编号样式");
+            
+            System.out.println("✅ 插入后编号样式测试通过");
+            
+        } catch (Exception e) {
+            fail("插入后编号样式测试失败: " + e.getMessage());
         }
     }
 }

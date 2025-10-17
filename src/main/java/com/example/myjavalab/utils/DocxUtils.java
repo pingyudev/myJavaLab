@@ -11,6 +11,7 @@ import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
 
 import java.io.*;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
 
 public class DocxUtils {
@@ -68,14 +69,14 @@ public class DocxUtils {
         try (FileInputStream fis = new FileInputStream(inputPath);
              XWPFDocument document = new XWPFDocument(fis)) {
             
-            // 获取书签A的内容
-            String contentA = getBookmarkContent(document, bookmarkA);
-            if (contentA == null) {
+            // 获取书签A的run节点（包含格式信息）
+            List<org.w3c.dom.Node> runNodesA = getBookmarkRunNodes(document, bookmarkA);
+            if (runNodesA.isEmpty()) {
                 throw new IllegalArgumentException("书签 " + bookmarkA + " 未找到或内容为空");
             }
             
-            // 设置书签B的内容并保持编号样式
-            setBookmarkContent(document, bookmarkB, contentA);
+            // 设置书签B的内容为run节点，保持所有格式
+            setBookmarkContentFromRunNodes(document, bookmarkB, runNodesA);
             
             // 保存文档
             try (FileOutputStream fos = new FileOutputStream(outputPath)) {
@@ -114,6 +115,37 @@ public class DocxUtils {
             }
         }
         return new BookmarkRange(-1, -1); // 未找到
+    }
+    
+    /**
+     * 查找包含指定书签的段落
+     */
+    private static XWPFParagraph findParagraphWithBookmark(XWPFDocument document, String bookmarkName) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (XWPFParagraph paragraph : paragraphs) {
+            if (containsBookmark(paragraph, bookmarkName)) {
+                return paragraph;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 获取书签的run节点（包含格式信息）
+     */
+    private static List<org.w3c.dom.Node> getBookmarkRunNodes(XWPFDocument document, String bookmarkName) {
+        XWPFParagraph paragraph = findParagraphWithBookmark(document, bookmarkName);
+        if (paragraph == null) {
+            return new ArrayList<>();
+        }
+        
+        BigInteger bookmarkId = getBookmarkId(paragraph, bookmarkName);
+        if (bookmarkId == null) {
+            return new ArrayList<>();
+        }
+        
+        return extractRunNodesBetweenBookmarks(paragraph, bookmarkId);
     }
     
     /**
@@ -708,6 +740,52 @@ public class DocxUtils {
         return text.toString();
     }
     
+    /**
+     * 提取书签之间的run节点（包含格式信息）
+     * 修复：提取实际的XML run节点而不是纯文本，以保持所有格式
+     */
+    private static List<org.w3c.dom.Node> extractRunNodesBetweenBookmarks(XWPFParagraph paragraph, BigInteger bookmarkId) {
+        List<org.w3c.dom.Node> runNodes = new ArrayList<>();
+        
+        try {
+            CTP ctp = paragraph.getCTP();
+            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            
+            // 查找bookmarkStart节点
+            org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+            if (bookmarkStartNode == null) {
+                System.err.println("未找到bookmarkStart节点，ID: " + bookmarkId);
+                return runNodes;
+            }
+            
+            // 查找对应的bookmarkEnd节点
+            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
+            if (bookmarkEndNode == null) {
+                System.err.println("未找到bookmarkEnd节点，ID: " + bookmarkId);
+                return runNodes;
+            }
+            
+            // 提取两个节点之间的run节点
+            org.w3c.dom.Node current = bookmarkStartNode.getNextSibling();
+            while (current != null && !current.equals(bookmarkEndNode)) {
+                // 只收集run节点（<w:r>）
+                if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && 
+                    current.getLocalName() != null && 
+                    current.getLocalName().equals("r")) {
+                    runNodes.add(current);
+                }
+                current = current.getNextSibling();
+            }
+            
+            System.out.println("✅ 提取到 " + runNodes.size() + " 个run节点，保持格式信息");
+            
+        } catch (Exception e) {
+            System.err.println("提取run节点失败: " + e.getMessage());
+        }
+        
+        return runNodes;
+    }
+    
     
     /**
      * 替换书签之间的内容，同时保持书签标记不变
@@ -737,6 +815,37 @@ public class DocxUtils {
             
         } catch (Exception e) {
             System.err.println("替换书签内容失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 替换书签之间的内容为run节点（保持格式）
+     * 修复：使用run节点替换内容以保持所有格式信息
+     */
+    private static void replaceContentBetweenBookmarksWithRunNodes(XWPFParagraph paragraph, BigInteger bookmarkId, List<org.w3c.dom.Node> runNodes) {
+        try {
+            CTP ctp = paragraph.getCTP();
+            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            
+            // 查找bookmarkStart和bookmarkEnd节点
+            org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNode(paragraphNode, bookmarkId);
+            
+            if (bookmarkStartNode == null || bookmarkEndNode == null) {
+                System.err.println("无法找到书签标记，ID: " + bookmarkId);
+                return;
+            }
+            
+            // 删除bookmarkStart和bookmarkEnd之间的所有内容节点
+            removeContentBetweenBookmarks(bookmarkStartNode, bookmarkEndNode);
+            
+            // 在bookmarkStart之后插入run节点（保持格式）
+            insertRunNodesAfterBookmarkStart(paragraph, bookmarkStartNode, runNodes);
+            
+            System.out.println("✅ 书签内容已替换为run节点，保持格式，ID: " + bookmarkId);
+            
+        } catch (Exception e) {
+            System.err.println("替换书签内容为run节点失败: " + e.getMessage());
         }
     }
     
@@ -777,6 +886,45 @@ public class DocxUtils {
         }
     }
     
+    /**
+     * 在bookmarkStart之后插入run节点（保持格式）
+     * 修复：克隆run节点以保持所有格式信息，并保持正确的顺序
+     */
+    private static void insertRunNodesAfterBookmarkStart(XWPFParagraph paragraph, org.w3c.dom.Node bookmarkStartNode, List<org.w3c.dom.Node> runNodes) {
+        try {
+            org.w3c.dom.Document ownerDocument = bookmarkStartNode.getOwnerDocument();
+            org.w3c.dom.Node parentNode = bookmarkStartNode.getParentNode();
+            org.w3c.dom.Node insertAfterNode = bookmarkStartNode;
+            
+            for (org.w3c.dom.Node runNode : runNodes) {
+                // 深度克隆run节点以保持所有格式属性
+                org.w3c.dom.Node clonedRunNode = runNode.cloneNode(true);
+                
+                // 如果节点来自不同的文档，需要导入到当前文档
+                if (!ownerDocument.equals(runNode.getOwnerDocument())) {
+                    clonedRunNode = ownerDocument.importNode(clonedRunNode, true);
+                }
+                
+                // 将克隆的run节点插入到正确的位置，保持顺序
+                if (insertAfterNode.getNextSibling() == null) {
+                    // 如果没有下一个兄弟节点，直接追加到末尾
+                    parentNode.appendChild(clonedRunNode);
+                } else {
+                    // 插入到insertAfterNode之后
+                    parentNode.insertBefore(clonedRunNode, insertAfterNode.getNextSibling());
+                }
+                
+                // 更新insertAfterNode为刚插入的节点，确保下一个节点插入在它之后
+                insertAfterNode = clonedRunNode;
+            }
+            
+            System.out.println("✅ 成功插入 " + runNodes.size() + " 个带格式的run节点，保持正确顺序");
+            
+        } catch (Exception e) {
+            System.err.println("插入run节点失败: " + e.getMessage());
+        }
+    }
+    
     
     
     /**
@@ -804,6 +952,36 @@ public class DocxUtils {
                     
                 } catch (Exception e) {
                     throw new IllegalStateException("设置书签内容失败: " + e.getMessage(), e);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 为书签设置run节点内容（保持格式）
+     * 修复：使用run节点设置内容以保持所有格式信息
+     */
+    private static void setBookmarkContentFromRunNodes(XWPFDocument document, String bookmarkName, List<org.w3c.dom.Node> runNodes) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (XWPFParagraph paragraph : paragraphs) {
+            if (containsBookmark(paragraph, bookmarkName)) {
+                try {
+                    // 获取书签ID
+                    BigInteger bookmarkId = getBookmarkId(paragraph, bookmarkName);
+                    if (bookmarkId == null) {
+                        System.err.println("无法找到书签ID: " + bookmarkName);
+                        break;
+                    }
+                    
+                    // 使用DOM操作替换内容为run节点，保持书签结构和格式
+                    replaceContentBetweenBookmarksWithRunNodes(paragraph, bookmarkId, runNodes);
+                    
+                    System.out.println("✅ 书签内容已更新为run节点，保持格式和书签结构: " + bookmarkName);
+                    break;
+                    
+                } catch (Exception e) {
+                    throw new IllegalStateException("设置书签run节点内容失败: " + e.getMessage(), e);
                 }
             }
         }

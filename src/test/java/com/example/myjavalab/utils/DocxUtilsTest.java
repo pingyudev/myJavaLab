@@ -6,7 +6,6 @@ import org.junit.jupiter.api.AfterEach;
 
 import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,13 +41,6 @@ public class DocxUtilsTest {
     @AfterEach
     void tearDown() {
         // 清理测试文件（保留结果文件用于验证）
-    //     try {
-    //         // Files.deleteIfExists(Paths.get(tempDocPath));
-    //         // 注释掉删除结果文件，保留用于验证
-    //         // Files.deleteIfExists(Paths.get(resultDocPath));
-    //     } catch (IOException e) {
-    //         System.err.println("清理测试文件失败: " + e.getMessage());
-    //     }
     }
 
     @Test

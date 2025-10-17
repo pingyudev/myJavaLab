@@ -158,14 +158,8 @@ public class DocxUtils {
                 }
             }
         } catch (Exception e) {
-            // 如果无法访问书签，尝试安全的文本搜索
-            try {
-                String text = paragraph.getText();
-                return text != null && text.contains(bookmarkName);
-            } catch (Exception ex) {
-                // 如果连文本都无法获取，返回false
-                return false;
-            }
+            // 如果无法访问书签，返回false
+            return false;
         }
         return false;
     }
@@ -226,10 +220,7 @@ public class DocxUtils {
             System.out.println("✅ 新段落已插入，书签: " + bookmarkName + "，编号: " + targetNumber);
                 
         } catch (Exception e) {
-            System.err.println("在目标段落之前插入失败: " + e.getMessage());
-            // 如果插入失败，至少确保书签被创建
-            XWPFParagraph fallbackParagraph = document.createParagraph();
-            createParagraphBookmark(fallbackParagraph, bookmarkName);
+            throw new IllegalStateException("在目标段落之前插入失败: " + e.getMessage(), e);
         }
     }
     
@@ -281,9 +272,7 @@ public class DocxUtils {
             }
             
         } catch (Exception e) {
-            System.err.println("复制段落样式失败: " + e.getMessage());
-            // 如果复制失败，至少设置基本的编号样式
-            setParagraphNumberingStyle(targetParagraph, 1);
+            throw new IllegalStateException("复制段落样式失败: " + e.getMessage(), e);
         }
     }
     
@@ -880,29 +869,6 @@ public class DocxUtils {
         }
     }
     
-    /**
-     * 解析内容并设置样式
-     */
-    private static void parseAndSetContentWithStyle(XWPFParagraph paragraph, String content) {
-        // 检查是否包含粗体部分
-        if (content.contains("提升职场竞争力，拥抱AI浪潮：")) {
-            // 添加粗体标题部分
-            XWPFRun boldRun = paragraph.createRun();
-            boldRun.setText("提升职场竞争力，拥抱AI浪潮：");
-            boldRun.setBold(true);
-            
-            // 添加其余内容
-            String remainingContent = content.replace("提升职场竞争力，拥抱AI浪潮：", "");
-            if (!remainingContent.trim().isEmpty()) {
-                XWPFRun contentRun = paragraph.createRun();
-                contentRun.setText(remainingContent);
-            }
-        } else {
-            // 如果没有特殊样式要求，直接添加内容
-            XWPFRun run = paragraph.createRun();
-            run.setText(content);
-        }
-    }
     
     
     /**
@@ -932,10 +898,7 @@ public class DocxUtils {
                     break;
                     
                 } catch (Exception e) {
-                    System.err.println("设置书签内容失败: " + e.getMessage());
-                    // 如果DOM操作失败，回退到原来的方法
-                    fallbackSetBookmarkContent(paragraph, content, number);
-                    break;
+                    throw new IllegalStateException("设置书签内容失败: " + e.getMessage(), e);
                 }
             }
         }
@@ -960,27 +923,6 @@ public class DocxUtils {
         return null;
     }
     
-    /**
-     * 回退方法：如果DOM操作失败，使用原来的方法
-     */
-    private static void fallbackSetBookmarkContent(XWPFParagraph paragraph, String content, int number) {
-        try {
-            // 清除段落中的所有runs
-            while (paragraph.getRuns().size() > 0) {
-                paragraph.removeRun(0);
-            }
-            
-            // 设置段落为编号列表样式
-            setParagraphNumberingStyle(paragraph, number);
-            
-            // 解析内容并保持样式（不包含序号）
-            parseAndSetContentWithStyle(paragraph, content);
-            
-            System.out.println("⚠️ 使用回退方法设置书签内容");
-        } catch (Exception e) {
-            System.err.println("回退方法也失败: " + e.getMessage());
-        }
-    }
     
     /**
      * 获取文档中指定书签的内容（公共方法，用于测试验证）

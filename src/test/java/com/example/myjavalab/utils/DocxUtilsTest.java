@@ -92,7 +92,13 @@ public class DocxUtilsTest {
             assertEquals(originalLabelAPosition, newLabelBPosition, 
                 "labelB应该插入到原来labelA的位置");
             
-            System.out.println("✅ 测试用例1通过: 在labelA之前成功插入labelB，位置验证通过");
+            // 验证labelB的内容包含initialString（说明书签正确包围了内容）
+            String labelBContent = DocxUtils.getBookmarkContentFromFile(tempDocPath, "labelB");
+            assertTrue(labelBContent.contains("initialString"), 
+                "labelB书签应该包围initialString内容，实际内容: " + labelBContent);
+            
+            System.out.println("📝 labelB书签内容: '" + labelBContent + "'");
+            System.out.println("✅ 测试用例1通过: 在labelA之前成功插入labelB，位置验证通过，书签内容验证通过");
             
         } catch (Exception e) {
             fail("测试用例1失败: " + e.getMessage());

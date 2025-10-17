@@ -218,11 +218,11 @@ public class DocxUtils {
             // 获取目标段落的编号
             int targetNumber = extractNumberFromParagraph(targetParagraph);
             
-            // 只添加4个空格的内容，不手动添加序号（让Word编号样式自动处理）
+            // 只添加initialString的内容，不手动添加序号（让Word编号样式自动处理）
             XWPFRun spaceRun = newParagraph.createRun();
-            spaceRun.setText("    "); // 4个空格
+            spaceRun.setText("initialString"); // 4个initialString
             
-            // 在新段落中创建书签（包围空格内容）
+            // 在新段落中创建书签（包围initialString内容）
             createBookmark(newParagraph, bookmarkName);
             
             // 只更新目标段落的编号样式属性，不重建内容（保持书签结构）
@@ -459,27 +459,45 @@ public class DocxUtils {
     
     /**
      * 在段落中创建书签（包围整个段落内容）
-     * 修复：在Run级别正确插入书签标记，确保书签包围所有内容
+     * 修复：使用DOM操作确保书签正确包围段落内容
      */
     private static void createBookmark(XWPFParagraph paragraph, String bookmarkName) {
         try {
             CTP ctp = paragraph.getCTP();
             BigInteger bookmarkId = generateUniqueBookmarkId();
             
-            // 确保段落有内容，如果没有则添加空格
+            // 确保段落有内容，如果没有则添加initialString
             if (paragraph.getRuns().isEmpty()) {
                 XWPFRun spaceRun = paragraph.createRun();
-                spaceRun.setText("    "); // 4个空格
+                spaceRun.setText("initialString");
             }
             
-            // 在段落的第一个Run之前插入书签开始标记
+            // 创建书签标记（会添加到末尾）
             CTBookmark bookmarkStart = ctp.addNewBookmarkStart();
             bookmarkStart.setName(bookmarkName);
             bookmarkStart.setId(bookmarkId);
             
-            // 在段落的最后一个Run之后插入书签结束标记
             CTMarkupRange bookmarkEnd = ctp.addNewBookmarkEnd();
             bookmarkEnd.setId(bookmarkId);
+            
+            // 使用DOM操作移动bookmarkStart到第一个Run之前
+            org.w3c.dom.Node bookmarkStartNode = bookmarkStart.getDomNode();
+            org.w3c.dom.Node firstRunNode = null;
+            
+            // 查找第一个<w:r>节点
+            org.w3c.dom.NodeList children = ctp.getDomNode().getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                org.w3c.dom.Node child = children.item(i);
+                if (child.getLocalName() != null && child.getLocalName().equals("r")) {
+                    firstRunNode = child;
+                    break;
+                }
+            }
+            
+            // 将bookmarkStart移到第一个Run之前
+            if (firstRunNode != null) {
+                ctp.getDomNode().insertBefore(bookmarkStartNode, firstRunNode);
+            }
             
             System.out.println("✅ 书签 '" + bookmarkName + "' 已创建，ID: " + bookmarkId);
             

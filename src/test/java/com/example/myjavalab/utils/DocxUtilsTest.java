@@ -31,7 +31,8 @@ public class DocxUtilsTest {
             
             // 如果测试文档不存在，创建一个
             if (!Files.exists(Paths.get(originalDocPath))) {
-                DocxTestDocumentCreator.createTestDocument(originalDocPath);
+                // DocxTestDocumentCreator.createTestDocument(originalDocPath);
+                throw new RuntimeException("测试文档不存在");
             }
         } catch (IOException e) {
             fail("无法创建测试目录或文档: " + e.getMessage());
@@ -108,12 +109,17 @@ public class DocxUtilsTest {
     @Test
     void testCopyBookmarkContent() {
         try {
-            // 先创建临时文档
-            DocxUtils.insertBookmarkBefore(originalDocPath, tempDocPath, "labelA", "labelB");
-            
-            // 获取原始文档中labelA的内容
+            // 先测试原始文档中的书签内容提取
             String originalLabelAContent = DocxUtils.getBookmarkContentFromFile(originalDocPath, "labelA");
             System.out.println("📝 原始文档labelA内容: '" + originalLabelAContent + "'");
+            
+            // 如果原始文档中labelA内容为空，直接失败测试
+            if (originalLabelAContent == null || originalLabelAContent.trim().isEmpty()) {
+                fail("原始文档中labelA内容为空，无法进行复制测试");
+            }
+            
+            // 先创建临时文档
+            DocxUtils.insertBookmarkBefore(originalDocPath, tempDocPath, "labelA", "labelB");
             
             // 测试用例2: 将labelA的内容复制给labelB
             DocxUtils.copyBookmarkContent(tempDocPath, resultDocPath, "labelA", "labelB");
@@ -143,6 +149,25 @@ public class DocxUtilsTest {
             
             assertEquals(originalContentWithoutNumber, resultLabelBContent, "结果文档中labelB内容应该与原始labelA内容（除序号）一致");
             
+            // 验证目标文件中labelA的内容和源文件labelA中的内容一致
+            String originalLabelAContentInOriginalDoc = DocxUtils.getBookmarkContentFromFile(originalDocPath, "labelA");
+            String resultLabelAContentInResultDoc = DocxUtils.getBookmarkContentFromFile(resultDocPath, "labelA");
+
+            assertEquals(
+                removeNumberFromContent(originalLabelAContentInOriginalDoc),
+                removeNumberFromContent(resultLabelAContentInResultDoc),
+                "目标文件中labelA的内容（除序号）应该和源文件labelA中的内容一致"
+            );
+
+            assertNotNull(resultLabelAContent, "结果文档中labelA内容不应为空");
+            assertFalse(resultLabelAContent.trim().isEmpty(), "结果文档中labelA内容不应为空字符串");
+
+            // 验证目标文件中的labelA内容和目标文件中的labelB内容一致
+            assertEquals(
+                removeNumberFromContent(resultLabelAContent),
+                removeNumberFromContent(resultLabelBContent),
+                "结果文档中labelA和labelB的内容（除序号）应该一致"
+            );
             System.out.println("✅ 测试用例2通过: 成功将labelA的内容复制给labelB，内容验证通过");
             
         } catch (Exception e) {

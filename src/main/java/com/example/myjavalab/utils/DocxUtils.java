@@ -52,23 +52,6 @@ public class DocxUtils {
         }
     }
 
-    public static void main(String[] args) {
-        String testDir = "src/main/resources/doc";
-        String originalDocPath = "src/main/resources/doc/debug_introduction.docx";
-        String tempDocPath = testDir + "/temp_introduction.docx";
-        String resultDocPath = testDir + "/result_introduction.docx";
-        // 创建测试目录
-        try {
-            Files.createDirectories(Paths.get(testDir));
-            
-            // 如果测试文档不存在，创建一个
-            if (!Files.exists(Paths.get(originalDocPath))) {
-                DocxTestDocumentCreator.createTestDocument(originalDocPath);
-            }
-        } catch (IOException e) {
-            System.out.println("无法创建测试目录或文档: " + e.getMessage());
-        }
-    }
     
     /**
      * 将书签A的内容复制到书签B

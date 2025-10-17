@@ -53,9 +53,11 @@ public class DocxUtilsTest {
     @Test
     void testInsertBookmarkBefore() {
         try {
-            // 获取原始文档中labelA的位置
+            // 获取原始文档中labelA的位置和范围
             int originalLabelAPosition = DocxUtils.getBookmarkPositionFromFile(originalDocPath, "labelA");
+            BookmarkRange originalLabelARange = DocxUtils.getBookmarkRangeFromFile(originalDocPath, "labelA");
             System.out.println("📝 原始文档中labelA位置: " + originalLabelAPosition);
+            System.out.println("📝 原始文档中labelA范围: " + originalLabelARange);
             
             // 测试用例1: 在文件中书签labelA之前插入labelB
             DocxUtils.insertBookmarkBefore(originalDocPath, tempDocPath, "labelA", "labelB");
@@ -66,9 +68,17 @@ public class DocxUtilsTest {
             // 验证插入后的位置顺序
             int newLabelAPosition = DocxUtils.getBookmarkPositionFromFile(tempDocPath, "labelA");
             int newLabelBPosition = DocxUtils.getBookmarkPositionFromFile(tempDocPath, "labelB");
+            BookmarkRange newLabelARange = DocxUtils.getBookmarkRangeFromFile(tempDocPath, "labelA");
+            BookmarkRange newLabelBRange = DocxUtils.getBookmarkRangeFromFile(tempDocPath, "labelB");
             
             System.out.println("📝 插入后labelA位置: " + newLabelAPosition);
             System.out.println("📝 插入后labelB位置: " + newLabelBPosition);
+            System.out.println("📝 插入后labelA范围: " + newLabelARange);
+            System.out.println("📝 插入后labelB范围: " + newLabelBRange);
+            
+            // 验证书签范围有效
+            assertTrue(newLabelARange.isValid(), "labelA书签范围应该有效");
+            assertTrue(newLabelBRange.isValid(), "labelB书签范围应该有效");
             
             // 验证labelB确实插入到了labelA之前
             assertTrue(newLabelBPosition < newLabelAPosition, 

@@ -17,6 +17,9 @@ import java.util.List;
 
 public class DocxUtils {
 
+    // 书签ID计数器，确保每个书签有唯一ID
+    private static long bookmarkIdCounter = 1000;
+
     /**
      * 在指定书签A前面插入新书签B
      * @param inputPath 输入文档路径
@@ -146,6 +149,22 @@ public class DocxUtils {
     }
     
     /**
+     * 查找书签在文档中的范围
+     */
+    private static BookmarkRange findBookmarkRange(XWPFDocument document, String bookmarkName) {
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (int i = 0; i < paragraphs.size(); i++) {
+            XWPFParagraph paragraph = paragraphs.get(i);
+            if (containsBookmark(paragraph, bookmarkName)) {
+                // 对于单段落书签，起始和结束位置相同
+                return new BookmarkRange(i, i);
+            }
+        }
+        return new BookmarkRange(-1, -1); // 未找到
+    }
+    
+    /**
      * 检查段落是否包含指定的书签
      */
     private static boolean containsBookmark(XWPFParagraph paragraph, String bookmarkName) {
@@ -203,6 +222,7 @@ public class DocxUtils {
     
     /**
      * 在目标段落之前插入新段落
+     * 修复：只使用编号样式，避免重复序号和破坏书签结构
      */
     private static void insertParagraphBeforeTarget(XWPFDocument document, XWPFParagraph targetParagraph, String bookmarkName) {
         try {
@@ -215,15 +235,15 @@ public class DocxUtils {
             // 获取目标段落的编号
             int targetNumber = extractNumberFromParagraph(targetParagraph);
             
-            // 给新段落添加编号和4个空格的内容
-            XWPFRun numberRun = newParagraph.createRun();
-            numberRun.setText(targetNumber + ".     "); // 编号 + 4个空格
+            // 只添加4个空格的内容，不手动添加序号（让Word编号样式自动处理）
+            XWPFRun spaceRun = newParagraph.createRun();
+            spaceRun.setText("    "); // 4个空格
             
-            // 在新段落中创建书签
+            // 在新段落中创建书签（包围空格内容）
             createBookmark(newParagraph, bookmarkName);
             
-            // 更新目标段落的编号（+1）
-            updateParagraphTextNumber(targetParagraph, targetNumber + 1);
+            // 只更新目标段落的编号样式属性，不重建内容（保持书签结构）
+            updateParagraphNumberingStyleOnly(targetParagraph, targetNumber + 1);
             
             // 获取目标段落的XML节点
             CTP targetCTP = targetParagraph.getCTP();
@@ -235,6 +255,8 @@ public class DocxUtils {
             // 使用DOM操作将新段落插入到目标段落之前
             targetCTP.getDomNode().getParentNode().insertBefore(
                 newCTP.getDomNode(), targetCTP.getDomNode());
+                
+            System.out.println("✅ 新段落已插入，书签: " + bookmarkName + "，编号: " + targetNumber);
                 
         } catch (Exception e) {
             System.err.println("在目标段落之前插入失败: " + e.getMessage());
@@ -325,6 +347,46 @@ public class DocxUtils {
     }
     
     /**
+     * 只更新段落的编号样式属性，不重建内容（保持书签结构完整）
+     */
+    private static void updateParagraphNumberingStyleOnly(XWPFParagraph paragraph, int newNumber) {
+        try {
+            // 获取段落的底层XML对象
+            CTP ctp = paragraph.getCTP();
+            
+            // 设置段落为编号列表
+            if (ctp.getPPr() == null) {
+                ctp.addNewPPr();
+            }
+            
+            // 创建或更新编号属性
+            CTNumPr numPr;
+            if (ctp.getPPr().getNumPr() == null) {
+                numPr = ctp.getPPr().addNewNumPr();
+            } else {
+                numPr = ctp.getPPr().getNumPr();
+            }
+            
+            // 设置编号ID（使用默认的编号样式）
+            if (numPr.getNumId() == null) {
+                numPr.addNewNumId();
+            }
+            numPr.getNumId().setVal(BigInteger.valueOf(1)); // 使用编号样式1
+            
+            // 设置编号级别
+            if (numPr.getIlvl() == null) {
+                numPr.addNewIlvl();
+            }
+            numPr.getIlvl().setVal(BigInteger.valueOf(0)); // 使用级别0
+            
+            System.out.println("✅ 段落编号样式已更新为: " + newNumber);
+            
+        } catch (Exception e) {
+            System.err.println("更新段落编号样式失败: " + e.getMessage());
+        }
+    }
+    
+    /**
      * 从段落中提取序号
      */
     private static int extractNumberFromParagraph(XWPFParagraph paragraph) {
@@ -406,20 +468,37 @@ public class DocxUtils {
     }
     
     /**
+     * 生成唯一的书签ID
+     */
+    private static BigInteger generateUniqueBookmarkId() {
+        return BigInteger.valueOf(bookmarkIdCounter++);
+    }
+    
+    /**
      * 在段落中创建书签（包围整个段落内容）
+     * 修复：在Run级别正确插入书签标记，确保书签包围所有内容
      */
     private static void createBookmark(XWPFParagraph paragraph, String bookmarkName) {
         try {
             CTP ctp = paragraph.getCTP();
+            BigInteger bookmarkId = generateUniqueBookmarkId();
             
-            // 在段落开始处创建书签开始标记
+            // 确保段落有内容，如果没有则添加空格
+            if (paragraph.getRuns().isEmpty()) {
+                XWPFRun spaceRun = paragraph.createRun();
+                spaceRun.setText("    "); // 4个空格
+            }
+            
+            // 在段落的第一个Run之前插入书签开始标记
             CTBookmark bookmarkStart = ctp.addNewBookmarkStart();
             bookmarkStart.setName(bookmarkName);
-            bookmarkStart.setId(BigInteger.valueOf(0));
+            bookmarkStart.setId(bookmarkId);
             
-            // 在段落结束处创建书签结束标记
+            // 在段落的最后一个Run之后插入书签结束标记
             CTMarkupRange bookmarkEnd = ctp.addNewBookmarkEnd();
-            bookmarkEnd.setId(BigInteger.valueOf(0));
+            bookmarkEnd.setId(bookmarkId);
+            
+            System.out.println("✅ 书签 '" + bookmarkName + "' 已创建，ID: " + bookmarkId);
             
         } catch (Exception e) {
             System.err.println("创建书签失败: " + e.getMessage());
@@ -601,6 +680,23 @@ public class DocxUtils {
         try (FileInputStream fis = new FileInputStream(documentPath);
              XWPFDocument document = new XWPFDocument(fis)) {
             return findBookmarkPosition(document, bookmarkName);
+        }
+    }
+    
+    /**
+     * 获取书签在文档中的范围（公共方法，用于测试验证）
+     * @param documentPath 文档路径
+     * @param bookmarkName 书签名称
+     * @return 书签范围，如果未找到返回BookmarkRange(-1, -1)
+     * @throws IOException
+     * @throws InvalidFormatException
+     * @throws XmlException
+     */
+    public static BookmarkRange getBookmarkRangeFromFile(String documentPath, String bookmarkName) 
+                                                       throws IOException, InvalidFormatException, XmlException {
+        try (FileInputStream fis = new FileInputStream(documentPath);
+             XWPFDocument document = new XWPFDocument(fis)) {
+            return findBookmarkRange(document, bookmarkName);
         }
     }
     

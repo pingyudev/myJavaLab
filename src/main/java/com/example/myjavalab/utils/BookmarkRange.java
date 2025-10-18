@@ -49,6 +49,30 @@ public class BookmarkRange {
         return start == -1 && end == -1;
     }
     
+    /**
+     * 检查书签是否跨多个段落
+     * @return 如果书签跨多个段落返回true，否则返回false
+     */
+    public boolean isMultiParagraph() {
+        return isValid() && start != end;
+    }
+    
+    /**
+     * 获取书签起始段落索引
+     * @return 起始段落索引
+     */
+    public int getStartParagraphIndex() {
+        return start;
+    }
+    
+    /**
+     * 获取书签结束段落索引
+     * @return 结束段落索引
+     */
+    public int getEndParagraphIndex() {
+        return end;
+    }
+    
     @Override
     public String toString() {
         if (isNotFound()) {

@@ -145,12 +145,20 @@ public class DocxUtils {
                 
                 // 确定bookmarkEnd所在的段落索引
                 int endParagraphIndex = findParagraphIndexContainingNode(document, bookmarkEndNode);
+                System.out.println("🔍 书签 " + bookmarkName + " 起始段落: " + i + ", 结束段落: " + endParagraphIndex);
                 if (endParagraphIndex == -1) {
                     // 如果无法确定结束段落，假设是单段落书签
                     return new BookmarkRange(i, i);
                 }
                 
-                return new BookmarkRange(i, endParagraphIndex);
+                // 确保start <= end
+                if (i <= endParagraphIndex) {
+                    return new BookmarkRange(i, endParagraphIndex);
+                } else {
+                    // 如果end < start，交换它们
+                    System.out.println("⚠️ 书签范围异常，交换start和end: " + i + " -> " + endParagraphIndex);
+                    return new BookmarkRange(endParagraphIndex, i);
+                }
             }
         }
         return new BookmarkRange(-1, -1); // 未找到
@@ -401,14 +409,21 @@ public class DocxUtils {
             throw new IllegalArgumentException("目标书签 " + targetBookmarkName + " 未找到");
         }
         
-        // 暂时简化处理：对于多段落书签，也使用单段落插入方式
-        // TODO: 未来可以改进为真正的多段落书签支持
-        List<XWPFParagraph> paragraphs = document.getParagraphs();
-        for (int i = 0; i < paragraphs.size(); i++) {
-            XWPFParagraph paragraph = paragraphs.get(i);
-            if (containsBookmark(paragraph, targetBookmarkName)) {
-                insertParagraphBeforeTarget(document, paragraph, newBookmarkName);
-                break;
+        // 根据书签类型选择处理方式
+        if (targetRange.isMultiParagraph()) {
+            // 多段落书签：创建匹配的多段落书签
+            System.out.println("🔄 检测到多段落书签，使用多段落插入方式");
+            insertMultiParagraphBookmarkBefore(document, targetBookmarkName, newBookmarkName, targetRange);
+        } else {
+            // 单段落书签：使用原有的单段落插入方式
+            System.out.println("🔄 检测到单段落书签，使用单段落插入方式");
+            List<XWPFParagraph> paragraphs = document.getParagraphs();
+            for (int i = 0; i < paragraphs.size(); i++) {
+                XWPFParagraph paragraph = paragraphs.get(i);
+                if (containsBookmark(paragraph, targetBookmarkName)) {
+                    insertParagraphBeforeTarget(document, paragraph, newBookmarkName);
+                    break;
+                }
             }
         }
     }
@@ -428,6 +443,13 @@ public class DocxUtils {
             System.out.println("📝 创建多段落书签，段落数: " + paragraphCount + 
                              " (从段落 " + startIndex + " 到 " + endIndex + ")");
             
+            // 获取目标书签的第一个段落
+            XWPFParagraph firstTargetParagraph = paragraphs.get(startIndex);
+            CTP firstTargetCTP = firstTargetParagraph.getCTP();
+            
+            // 生成唯一的书签ID
+            BigInteger bookmarkId = BigInteger.valueOf(System.currentTimeMillis() % 1000000);
+            
             // 创建新段落列表
             List<XWPFParagraph> newParagraphs = new ArrayList<>();
             
@@ -446,12 +468,11 @@ public class DocxUtils {
                 newParagraphs.add(newParagraph);
             }
             
-            // 在目标书签的第一个段落之前插入所有新段落
-            XWPFParagraph firstTargetParagraph = paragraphs.get(startIndex);
-            CTP firstTargetCTP = firstTargetParagraph.getCTP();
+            // 在段落插入到DOM之前就创建书签，避免orphaned问题
+            createMultiParagraphBookmarkBeforeInsertion(newParagraphs, newBookmarkName, bookmarkId);
             
-            // 将新段落插入到文档中
-            for (int i = newParagraphs.size() - 1; i >= 0; i--) {
+            // 将新段落插入到文档中（从前往后插入，保持顺序）
+            for (int i = 0; i < newParagraphs.size(); i++) {
                 XWPFParagraph newParagraph = newParagraphs.get(i);
                 CTP newCTP = newParagraph.getCTP();
                 
@@ -460,38 +481,181 @@ public class DocxUtils {
                     newCTP.getDomNode(), firstTargetCTP.getDomNode());
             }
             
-            // 重新获取段落列表，因为插入后索引可能发生变化
-            List<XWPFParagraph> updatedParagraphs = document.getParagraphs();
-            
-            // 找到新插入的段落（它们应该在目标段落之前）
-            int newStartIndex = -1;
-            for (int i = 0; i < updatedParagraphs.size(); i++) {
-                if (updatedParagraphs.get(i) == newParagraphs.get(0)) {
-                    newStartIndex = i;
-                    break;
-                }
-            }
-            
-            if (newStartIndex != -1) {
-                // 在第一个新段落中创建bookmarkStart
-                XWPFParagraph firstNewParagraph = updatedParagraphs.get(newStartIndex);
-                // 确保段落有内容
-                if (firstNewParagraph.getRuns().isEmpty()) {
-                    XWPFRun run = firstNewParagraph.createRun();
-                    run.setText("initialString");
-                }
-                createParagraphBookmark(firstNewParagraph, newBookmarkName);
-                
-                // 在最后一个新段落中创建bookmarkEnd
-                XWPFParagraph lastNewParagraph = updatedParagraphs.get(newStartIndex + newParagraphs.size() - 1);
-                addBookmarkEndToParagraph(lastNewParagraph, newBookmarkName);
-            }
-            
             System.out.println("✅ 多段落书签创建完成: " + newBookmarkName + 
                              " (段落数: " + paragraphCount + ")");
             
         } catch (Exception e) {
             throw new IllegalStateException("创建多段落书签失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 在段落插入到DOM之前创建多段落书签，完全避免orphaned问题
+     */
+    private static void createMultiParagraphBookmarkBeforeInsertion(List<XWPFParagraph> newParagraphs, 
+                                                                   String bookmarkName, 
+                                                                   BigInteger bookmarkId) {
+        try {
+            if (newParagraphs.isEmpty()) {
+                return;
+            }
+            
+            XWPFParagraph firstParagraph = newParagraphs.get(0);
+            XWPFParagraph lastParagraph = newParagraphs.get(newParagraphs.size() - 1);
+            
+            // 在第一个段落中创建bookmarkStart
+            CTP firstCTP = firstParagraph.getCTP();
+            CTBookmark bookmarkStart = firstCTP.addNewBookmarkStart();
+            bookmarkStart.setName(bookmarkName);
+            bookmarkStart.setId(bookmarkId);
+            
+            // 在最后一个段落中创建bookmarkEnd
+            CTP lastCTP = lastParagraph.getCTP();
+            CTMarkupRange bookmarkEnd = lastCTP.addNewBookmarkEnd();
+            bookmarkEnd.setId(bookmarkId);
+            
+            // 使用DOM操作移动bookmarkStart到第一个Run之前
+            org.w3c.dom.Node bookmarkStartNode = bookmarkStart.getDomNode();
+            org.w3c.dom.Node firstRunNode = null;
+            
+            // 查找第一个<w:r>节点
+            org.w3c.dom.NodeList children = firstCTP.getDomNode().getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                org.w3c.dom.Node child = children.item(i);
+                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                    String localName = child.getLocalName();
+                    if ("r".equals(localName)) {
+                        firstRunNode = child;
+                        break;
+                    }
+                }
+            }
+            
+            if (firstRunNode != null) {
+                // 将bookmarkStart移动到第一个Run之前
+                firstCTP.getDomNode().insertBefore(bookmarkStartNode, firstRunNode);
+            }
+            
+            System.out.println("✅ 多段落书签预创建完成: " + bookmarkName + " (ID: " + bookmarkId + ")");
+            
+        } catch (Exception e) {
+            System.err.println("❌ 预创建多段落书签失败: " + e.getMessage());
+            e.printStackTrace();
+            throw new IllegalStateException("预创建多段落书签失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 完全基于DOM操作创建多段落书签，避免orphaned问题
+     */
+    private static void createMultiParagraphBookmarkSafely(XWPFParagraph firstParagraph, 
+                                                          XWPFParagraph lastParagraph, 
+                                                          String bookmarkName, 
+                                                          BigInteger bookmarkId) {
+        try {
+            // 直接使用DOM操作创建书签，完全避免Apache POI的orphaned问题
+            org.w3c.dom.Document doc = firstParagraph.getDocument().getDocument().getDomNode().getOwnerDocument();
+            org.w3c.dom.Element firstCTPElement = (org.w3c.dom.Element) firstParagraph.getCTP().getDomNode();
+            org.w3c.dom.Element lastCTPElement = (org.w3c.dom.Element) lastParagraph.getCTP().getDomNode();
+            
+            // 创建bookmarkStart元素
+            org.w3c.dom.Element bookmarkStart = doc.createElement("w:bookmarkStart");
+            bookmarkStart.setAttribute("w:name", bookmarkName);
+            bookmarkStart.setAttribute("w:id", bookmarkId.toString());
+            
+            // 创建bookmarkEnd元素
+            org.w3c.dom.Element bookmarkEnd = doc.createElement("w:bookmarkEnd");
+            bookmarkEnd.setAttribute("w:id", bookmarkId.toString());
+            
+            // 查找第一个<w:r>节点
+            org.w3c.dom.Node firstRunNode = null;
+            org.w3c.dom.NodeList children = firstCTPElement.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                org.w3c.dom.Node child = children.item(i);
+                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                    String localName = child.getLocalName();
+                    if ("r".equals(localName)) {
+                        firstRunNode = child;
+                        break;
+                    }
+                }
+            }
+            
+            // 插入bookmarkStart到第一个Run之前
+            if (firstRunNode != null) {
+                firstCTPElement.insertBefore(bookmarkStart, firstRunNode);
+            } else {
+                // 如果没有找到Run节点，添加到段落末尾
+                firstCTPElement.appendChild(bookmarkStart);
+            }
+            
+            // 添加bookmarkEnd到最后一个段落
+            lastCTPElement.appendChild(bookmarkEnd);
+            
+            System.out.println("✅ 多段落书签DOM创建完成: " + bookmarkName + " (ID: " + bookmarkId + ")");
+            
+        } catch (Exception e) {
+            System.err.println("❌ 创建多段落书签失败: " + e.getMessage());
+            e.printStackTrace();
+            throw new IllegalStateException("创建多段落书签失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 使用DOM操作创建多段落书签，避免orphaned问题
+     */
+    private static void createMultiParagraphBookmarkWithDOM(XWPFParagraph firstParagraph, 
+                                                           XWPFParagraph lastParagraph, 
+                                                           String bookmarkName) {
+        try {
+            // 生成唯一的书签ID
+            BigInteger bookmarkId = BigInteger.valueOf(System.currentTimeMillis() % 1000000);
+            
+            // 直接使用DOM操作创建书签，避免orphaned问题
+            org.w3c.dom.Document doc = firstParagraph.getDocument().getDocument().getDomNode().getOwnerDocument();
+            org.w3c.dom.Element firstCTPElement = (org.w3c.dom.Element) firstParagraph.getCTP().getDomNode();
+            org.w3c.dom.Element lastCTPElement = (org.w3c.dom.Element) lastParagraph.getCTP().getDomNode();
+            
+            // 创建bookmarkStart元素
+            org.w3c.dom.Element bookmarkStart = doc.createElement("w:bookmarkStart");
+            bookmarkStart.setAttribute("w:name", bookmarkName);
+            bookmarkStart.setAttribute("w:id", bookmarkId.toString());
+            
+            // 创建bookmarkEnd元素
+            org.w3c.dom.Element bookmarkEnd = doc.createElement("w:bookmarkEnd");
+            bookmarkEnd.setAttribute("w:id", bookmarkId.toString());
+            
+            // 查找第一个<w:r>节点
+            org.w3c.dom.Node firstRunNode = null;
+            org.w3c.dom.NodeList children = firstCTPElement.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                org.w3c.dom.Node child = children.item(i);
+                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                    String localName = child.getLocalName();
+                    if ("r".equals(localName)) {
+                        firstRunNode = child;
+                        break;
+                    }
+                }
+            }
+            
+            // 插入bookmarkStart到第一个Run之前
+            if (firstRunNode != null) {
+                firstCTPElement.insertBefore(bookmarkStart, firstRunNode);
+            } else {
+                // 如果没有找到Run节点，添加到段落末尾
+                firstCTPElement.appendChild(bookmarkStart);
+            }
+            
+            // 添加bookmarkEnd到最后一个段落
+            lastCTPElement.appendChild(bookmarkEnd);
+            
+            System.out.println("✅ 多段落书签DOM创建完成: " + bookmarkName + " (ID: " + bookmarkId + ")");
+            
+        } catch (Exception e) {
+            System.err.println("❌ 创建多段落书签DOM失败: " + e.getMessage());
+            e.printStackTrace();
+            throw new IllegalStateException("创建多段落书签DOM失败: " + e.getMessage(), e);
         }
     }
     
@@ -1659,6 +1823,41 @@ public class DocxUtils {
             return getBookmarkContent(document, bookmarkName);
         }
     }
+    
+    /**
+     * 从文件中获取书签包含的段落数量
+     * @param documentPath 文档路径
+     * @param bookmarkName 书签名称
+     * @return 书签包含的段落数量
+     * @throws IOException
+     * @throws InvalidFormatException
+     * @throws XmlException
+     */
+    public static int getBookmarkParagraphCountFromFile(String documentPath, String bookmarkName) 
+                                                       throws IOException, InvalidFormatException, XmlException {
+        try (FileInputStream fis = new FileInputStream(documentPath);
+             XWPFDocument document = new XWPFDocument(fis)) {
+            return getBookmarkParagraphCount(document, bookmarkName);
+        }
+    }
+    
+    /**
+     * 比较两个书签中对应段落的样式是否一致
+     * @param documentPath 文档路径
+     * @param bookmarkName1 第一个书签名称
+     * @param bookmarkName2 第二个书签名称
+     * @return 样式是否一致
+     * @throws IOException
+     * @throws InvalidFormatException
+     * @throws XmlException
+     */
+    public static boolean compareBookmarkParagraphStyles(String documentPath, String bookmarkName1, String bookmarkName2) 
+                                                         throws IOException, InvalidFormatException, XmlException {
+        try (FileInputStream fis = new FileInputStream(documentPath);
+             XWPFDocument document = new XWPFDocument(fis)) {
+            return compareBookmarkParagraphStyles(document, bookmarkName1, bookmarkName2);
+        }
+    }
 
     /**
      * 获取书签在文档中的位置（公共方法，用于测试验证）
@@ -1732,6 +1931,118 @@ public class DocxUtils {
             }
         }
         return false;
+    }
+    
+    /**
+     * 获取书签包含的段落数量
+     * @param document 文档对象
+     * @param bookmarkName 书签名称
+     * @return 书签包含的段落数量
+     */
+    private static int getBookmarkParagraphCount(XWPFDocument document, String bookmarkName) {
+        BookmarkRange range = findBookmarkRange(document, bookmarkName);
+        if (range.isNotFound()) {
+            return 0;
+        }
+        
+        // 计算书签跨越的段落数量
+        int startIndex = range.getStartParagraphIndex();
+        int endIndex = range.getEndParagraphIndex();
+        
+        return endIndex - startIndex + 1;
+    }
+    
+    /**
+     * 比较两个书签中对应段落的样式是否一致
+     * @param document 文档对象
+     * @param bookmarkName1 第一个书签名称
+     * @param bookmarkName2 第二个书签名称
+     * @return 样式是否一致
+     */
+    private static boolean compareBookmarkParagraphStyles(XWPFDocument document, String bookmarkName1, String bookmarkName2) {
+        BookmarkRange range1 = findBookmarkRange(document, bookmarkName1);
+        BookmarkRange range2 = findBookmarkRange(document, bookmarkName2);
+        
+        if (range1.isNotFound() || range2.isNotFound()) {
+            return false;
+        }
+        
+        // 检查段落数量是否相同
+        int count1 = range1.getEndParagraphIndex() - range1.getStartParagraphIndex() + 1;
+        int count2 = range2.getEndParagraphIndex() - range2.getStartParagraphIndex() + 1;
+        
+        if (count1 != count2) {
+            return false;
+        }
+        
+        // 比较每个对应段落的样式
+        List<XWPFParagraph> paragraphs = document.getParagraphs();
+        
+        for (int i = 0; i < count1; i++) {
+            XWPFParagraph para1 = paragraphs.get(range1.getStartParagraphIndex() + i);
+            XWPFParagraph para2 = paragraphs.get(range2.getStartParagraphIndex() + i);
+            
+            if (!compareParagraphStyles(para1, para2)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 比较两个段落的样式是否一致
+     * @param para1 第一个段落
+     * @param para2 第二个段落
+     * @return 样式是否一致
+     */
+    private static boolean compareParagraphStyles(XWPFParagraph para1, XWPFParagraph para2) {
+        // 比较段落对齐方式
+        if (para1.getAlignment() != para2.getAlignment()) {
+            return false;
+        }
+        
+        // 比较段落间距
+        if (para1.getSpacingBefore() != para2.getSpacingBefore()) {
+            return false;
+        }
+        if (para1.getSpacingAfter() != para2.getSpacingAfter()) {
+            return false;
+        }
+        if (para1.getSpacingBetween() != para2.getSpacingBetween()) {
+            return false;
+        }
+        
+        // 比较段落缩进
+        if (para1.getIndentationLeft() != para2.getIndentationLeft()) {
+            return false;
+        }
+        if (para1.getIndentationRight() != para2.getIndentationRight()) {
+            return false;
+        }
+        if (para1.getIndentationFirstLine() != para2.getIndentationFirstLine()) {
+            return false;
+        }
+        if (para1.getIndentationHanging() != para2.getIndentationHanging()) {
+            return false;
+        }
+        
+        // 比较编号样式
+        if (para1.getNumID() != para2.getNumID()) {
+            return false;
+        }
+        if (para1.getNumIlvl() != para2.getNumIlvl()) {
+            return false;
+        }
+        
+        // 比较段落样式ID
+        String style1 = para1.getStyle();
+        String style2 = para2.getStyle();
+        if ((style1 == null && style2 != null) || (style1 != null && !style1.equals(style2))) {
+            return false;
+        }
+        
+        return true;
     }
 
 }

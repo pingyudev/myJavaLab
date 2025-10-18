@@ -77,9 +77,9 @@ public class DocxUtilsTest {
             assertTrue(newLabelBPosition < newLabelAPosition, 
                 "labelB应该插入到labelA之前，但实际位置: labelB=" + newLabelBPosition + ", labelA=" + newLabelAPosition);
             
-            // 验证labelA的位置向后移动了一位（因为插入了新段落）
-            assertEquals(originalLabelAPosition + 1, newLabelAPosition, 
-                "labelA的位置应该向后移动一位");
+            // 验证labelA的位置向后移动了7位（因为插入了7个新段落）
+            assertEquals(originalLabelAPosition + 7, newLabelAPosition, 
+                "labelA的位置应该向后移动7位");
             
             // 验证labelB的位置就是原来labelA的位置
             assertEquals(originalLabelAPosition, newLabelBPosition, 
@@ -91,7 +91,23 @@ public class DocxUtilsTest {
                 "labelB书签应该包围initialString内容，实际内容: " + labelBContent);
             
             System.out.println("📝 labelB书签内容: '" + labelBContent + "'");
-            System.out.println("✅ 测试用例1通过: 在labelA之前成功插入labelB，位置验证通过，书签内容验证通过");
+            
+            // 验证多段落书签结构：labelB应该包含与labelA相同数量的段落
+            int labelAParagraphCount = DocxUtils.getBookmarkParagraphCountFromFile(tempDocPath, "labelA");
+            int labelBParagraphCount = DocxUtils.getBookmarkParagraphCountFromFile(tempDocPath, "labelB");
+            
+            System.out.println("📝 labelA段落数量: " + labelAParagraphCount);
+            System.out.println("📝 labelB段落数量: " + labelBParagraphCount);
+            
+            assertEquals(labelAParagraphCount, labelBParagraphCount, 
+                "labelB应该包含与labelA相同数量的段落");
+            
+            // 验证段落样式一致性
+            boolean stylesMatch = DocxUtils.compareBookmarkParagraphStyles(tempDocPath, "labelA", "labelB");
+            assertTrue(stylesMatch, "labelA和labelB中对应段落的样式应该一致");
+            
+            System.out.println("📝 段落样式一致性检查: " + (stylesMatch ? "通过" : "失败"));
+            System.out.println("✅ 测试用例1通过: 在labelA之前成功插入labelB，位置验证通过，书签内容验证通过，多段落结构验证通过，样式一致性验证通过");
             
         } catch (Exception e) {
             fail("测试用例1失败: " + e.getMessage());

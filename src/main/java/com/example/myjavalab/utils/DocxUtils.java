@@ -776,6 +776,11 @@ public class DocxUtils {
                 if (sourceCTP.getPPr().getSpacing() != null) {
                     targetCTP.getPPr().setSpacing(sourceCTP.getPPr().getSpacing());
                 }
+                
+                // 复制缩进属性
+                if (sourceCTP.getPPr().getInd() != null) {
+                    targetCTP.getPPr().setInd(sourceCTP.getPPr().getInd());
+                }
             } else {
                 // 如果源段落没有编号样式，为目标段落设置默认编号样式
                 setParagraphNumberingStyle(targetParagraph);
@@ -2144,20 +2149,25 @@ public class DocxUtils {
         }
 
         // 比较编号样式
-        if (para1.getNumID() != para2.getNumID()) {
+        BigInteger numId1 = para1.getNumID();
+        BigInteger numId2 = para2.getNumID();
+        if ((numId1 == null && numId2 != null) || (numId1 != null && !numId1.equals(numId2))) {
             System.out.println("❌ 编号ID不同:");
             System.out.println("   段落1内容: \"" + content1 + "\"");
-            System.out.println("   段落1编号ID: " + para1.getNumID());
+            System.out.println("   段落1编号ID: " + numId1);
             System.out.println("   段落2内容: \"" + content2 + "\"");
-            System.out.println("   段落2编号ID: " + para2.getNumID());
+            System.out.println("   段落2编号ID: " + numId2);
             return false;
         }
-        if (para1.getNumIlvl() != para2.getNumIlvl()) {
+        
+        BigInteger numIlvl1 = para1.getNumIlvl();
+        BigInteger numIlvl2 = para2.getNumIlvl();
+        if ((numIlvl1 == null && numIlvl2 != null) || (numIlvl1 != null && !numIlvl1.equals(numIlvl2))) {
             System.out.println("❌ 编号级别不同:");
             System.out.println("   段落1内容: \"" + content1 + "\"");
-            System.out.println("   段落1编号级别: " + para1.getNumIlvl());
+            System.out.println("   段落1编号级别: " + numIlvl1);
             System.out.println("   段落2内容: \"" + content2 + "\"");
-            System.out.println("   段落2编号级别: " + para2.getNumIlvl());
+            System.out.println("   段落2编号级别: " + numIlvl2);
             return false;
         }
 

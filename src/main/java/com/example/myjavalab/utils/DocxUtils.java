@@ -8,6 +8,10 @@ import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTDecimalNumber;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTMarkupRange;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTNumPr;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
+import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 import java.io.*;
 import java.math.BigInteger;
@@ -24,17 +28,17 @@ public class DocxUtils {
      */
     public static class ParagraphContent {
         private final int paragraphIndex;
-        private final List<org.w3c.dom.Node> runNodes;
+        private final List<Node> runNodes;
         private final CTP paragraphProperties;
         
-        public ParagraphContent(int paragraphIndex, List<org.w3c.dom.Node> runNodes, CTP paragraphProperties) {
+        public ParagraphContent(int paragraphIndex, List<Node> runNodes, CTP paragraphProperties) {
             this.paragraphIndex = paragraphIndex;
             this.runNodes = runNodes;
             this.paragraphProperties = paragraphProperties;
         }
         
         public int getParagraphIndex() { return paragraphIndex; }
-        public List<org.w3c.dom.Node> getRunNodes() { return runNodes; }
+        public List<Node> getRunNodes() { return runNodes; }
         public CTP getParagraphProperties() { return paragraphProperties; }
     }
 
@@ -137,7 +141,7 @@ public class DocxUtils {
                 }
                 
                 // 查找bookmarkEnd节点来确定结束段落
-                org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
+                Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
                 if (bookmarkEndNode == null) {
                     // 如果找不到bookmarkEnd，假设是单段落书签
                     return new BookmarkRange(i, i);
@@ -181,13 +185,13 @@ public class DocxUtils {
     /**
      * 查找包含指定DOM节点的段落索引
      */
-    private static int findParagraphIndexContainingNode(XWPFDocument document, org.w3c.dom.Node targetNode) {
+    private static int findParagraphIndexContainingNode(XWPFDocument document, Node targetNode) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
         
         for (int i = 0; i < paragraphs.size(); i++) {
             XWPFParagraph paragraph = paragraphs.get(i);
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             // 检查目标节点是否在当前段落中
             if (isNodeContainedIn(paragraphNode, targetNode)) {
@@ -200,16 +204,16 @@ public class DocxUtils {
     /**
      * 检查目标节点是否包含在指定段落节点中
      */
-    private static boolean isNodeContainedIn(org.w3c.dom.Node paragraphNode, org.w3c.dom.Node targetNode) {
+    private static boolean isNodeContainedIn(Node paragraphNode, Node targetNode) {
         // 如果目标节点就是段落节点本身
         if (paragraphNode.equals(targetNode)) {
             return true;
         }
         
         // 递归检查子节点
-        org.w3c.dom.NodeList children = paragraphNode.getChildNodes();
+        NodeList children = paragraphNode.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            org.w3c.dom.Node child = children.item(i);
+            Node child = children.item(i);
             if (child.equals(targetNode) || isNodeContainedIn(child, targetNode)) {
                 return true;
             }
@@ -221,7 +225,7 @@ public class DocxUtils {
     /**
      * 获取书签的run节点（包含格式信息）
      */
-    private static List<org.w3c.dom.Node> getBookmarkRunNodes(XWPFDocument document, String bookmarkName) {
+    private static List<Node> getBookmarkRunNodes(XWPFDocument document, String bookmarkName) {
         XWPFParagraph paragraph = findParagraphWithBookmark(document, bookmarkName);
         if (paragraph == null) {
             return new ArrayList<>();
@@ -251,9 +255,9 @@ public class DocxUtils {
         
         // 查找bookmarkStart和bookmarkEnd节点
         CTP ctp = paragraph.getCTP();
-        org.w3c.dom.Node paragraphNode = ctp.getDomNode();
-        org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
-        org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
+        Node paragraphNode = ctp.getDomNode();
+        Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+        Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
         
         if (bookmarkStartNode == null || bookmarkEndNode == null) {
             return new ArrayList<>();
@@ -267,18 +271,18 @@ public class DocxUtils {
      * 返回按段落组织的结构信息，保持段落边界
      */
     private static List<ParagraphContent> extractParagraphContentBetweenBookmarks(XWPFDocument document, 
-                                                                                 org.w3c.dom.Node bookmarkStartNode, 
-                                                                                 org.w3c.dom.Node bookmarkEndNode) {
+                                                                                 Node bookmarkStartNode, 
+                                                                                 Node bookmarkEndNode) {
         List<ParagraphContent> paragraphContents = new ArrayList<>();
         
         try {
             // 如果bookmarkStart和bookmarkEnd在同一个段落中
             if (bookmarkStartNode.getParentNode().equals(bookmarkEndNode.getParentNode())) {
                 // 单段落情况：提取run节点
-                List<org.w3c.dom.Node> runNodes = new ArrayList<>();
-                org.w3c.dom.Node current = bookmarkStartNode.getNextSibling();
+                List<Node> runNodes = new ArrayList<>();
+                Node current = bookmarkStartNode.getNextSibling();
                 while (current != null && !current.equals(bookmarkEndNode)) {
-                    if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && 
+                    if (current.getNodeType() == Node.ELEMENT_NODE && 
                         current.getLocalName() != null && 
                         current.getLocalName().equals("r")) {
                         runNodes.add(current);
@@ -293,8 +297,8 @@ public class DocxUtils {
                 
             } else {
                 // 多段落情况：按段落组织内容
-                org.w3c.dom.Node startParent = bookmarkStartNode.getParentNode();
-                org.w3c.dom.Node endParent = bookmarkEndNode.getParentNode();
+                Node startParent = bookmarkStartNode.getParentNode();
+                Node endParent = bookmarkEndNode.getParentNode();
                 
                 // 获取文档的段落列表
                 List<XWPFParagraph> paragraphs = document.getParagraphs();
@@ -306,14 +310,14 @@ public class DocxUtils {
                     for (int i = startParagraphIndex; i <= endParagraphIndex; i++) {
                         XWPFParagraph paragraph = paragraphs.get(i);
                         CTP ctp = paragraph.getCTP();
-                        org.w3c.dom.Node paragraphNode = ctp.getDomNode();
-                        List<org.w3c.dom.Node> runNodes = new ArrayList<>();
+                        Node paragraphNode = ctp.getDomNode();
+                        List<Node> runNodes = new ArrayList<>();
                         
                         if (i == startParagraphIndex) {
                             // 起始段落：提取bookmarkStart之后的所有run节点
-                            org.w3c.dom.Node current = bookmarkStartNode.getNextSibling();
+                            Node current = bookmarkStartNode.getNextSibling();
                             while (current != null) {
-                                if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && 
+                                if (current.getNodeType() == Node.ELEMENT_NODE && 
                                     current.getLocalName() != null && 
                                     current.getLocalName().equals("r")) {
                                     runNodes.add(current);
@@ -322,9 +326,9 @@ public class DocxUtils {
                             }
                         } else if (i == endParagraphIndex) {
                             // 结束段落：提取bookmarkEnd之前的所有run节点
-                            org.w3c.dom.Node current = paragraphNode.getFirstChild();
+                            Node current = paragraphNode.getFirstChild();
                             while (current != null && !current.equals(bookmarkEndNode)) {
-                                if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && 
+                                if (current.getNodeType() == Node.ELEMENT_NODE && 
                                     current.getLocalName() != null && 
                                     current.getLocalName().equals("r")) {
                                     runNodes.add(current);
@@ -333,10 +337,10 @@ public class DocxUtils {
                             }
                         } else {
                             // 中间段落：提取整个段落的所有run节点
-                            org.w3c.dom.NodeList children = paragraphNode.getChildNodes();
+                            NodeList children = paragraphNode.getChildNodes();
                             for (int j = 0; j < children.getLength(); j++) {
-                                org.w3c.dom.Node child = children.item(j);
-                                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && 
+                                Node child = children.item(j);
+                                if (child.getNodeType() == Node.ELEMENT_NODE && 
                                     child.getLocalName() != null && 
                                     child.getLocalName().equals("r")) {
                                     runNodes.add(child);
@@ -364,12 +368,12 @@ public class DocxUtils {
      * 返回包含完整段落结构的节点列表
      * @deprecated 使用 extractParagraphContentBetweenBookmarks 替代
      */
-    private static List<org.w3c.dom.Node> extractParagraphNodesBetweenBookmarks(XWPFDocument document, 
-                                                                                org.w3c.dom.Node bookmarkStartNode, 
-                                                                                org.w3c.dom.Node bookmarkEndNode) {
+    private static List<Node> extractParagraphNodesBetweenBookmarks(XWPFDocument document, 
+                                                                                Node bookmarkStartNode, 
+                                                                                Node bookmarkEndNode) {
         // 为了向后兼容，将新的段落内容转换为旧的格式
         List<ParagraphContent> paragraphContents = extractParagraphContentBetweenBookmarks(document, bookmarkStartNode, bookmarkEndNode);
-        List<org.w3c.dom.Node> allRunNodes = new ArrayList<>();
+        List<Node> allRunNodes = new ArrayList<>();
         
         for (ParagraphContent content : paragraphContents) {
             allRunNodes.addAll(content.getRunNodes());
@@ -515,14 +519,14 @@ public class DocxUtils {
             bookmarkEnd.setId(bookmarkId);
             
             // 使用DOM操作移动bookmarkStart到第一个Run之前
-            org.w3c.dom.Node bookmarkStartNode = bookmarkStart.getDomNode();
-            org.w3c.dom.Node firstRunNode = null;
+            Node bookmarkStartNode = bookmarkStart.getDomNode();
+            Node firstRunNode = null;
             
             // 查找第一个<w:r>节点
-            org.w3c.dom.NodeList children = firstCTP.getDomNode().getChildNodes();
+            NodeList children = firstCTP.getDomNode().getChildNodes();
             for (int i = 0; i < children.getLength(); i++) {
-                org.w3c.dom.Node child = children.item(i);
-                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                Node child = children.item(i);
+                if (child.getNodeType() == Node.ELEMENT_NODE) {
                     String localName = child.getLocalName();
                     if ("r".equals(localName)) {
                         firstRunNode = child;
@@ -555,24 +559,24 @@ public class DocxUtils {
         try {
             // 直接使用DOM操作创建书签，完全避免Apache POI的orphaned问题
             org.w3c.dom.Document doc = firstParagraph.getDocument().getDocument().getDomNode().getOwnerDocument();
-            org.w3c.dom.Element firstCTPElement = (org.w3c.dom.Element) firstParagraph.getCTP().getDomNode();
-            org.w3c.dom.Element lastCTPElement = (org.w3c.dom.Element) lastParagraph.getCTP().getDomNode();
+            Element firstCTPElement = (Element) firstParagraph.getCTP().getDomNode();
+            Element lastCTPElement = (Element) lastParagraph.getCTP().getDomNode();
             
             // 创建bookmarkStart元素
-            org.w3c.dom.Element bookmarkStart = doc.createElement("w:bookmarkStart");
+            Element bookmarkStart = doc.createElement("w:bookmarkStart");
             bookmarkStart.setAttribute("w:name", bookmarkName);
             bookmarkStart.setAttribute("w:id", bookmarkId.toString());
             
             // 创建bookmarkEnd元素
-            org.w3c.dom.Element bookmarkEnd = doc.createElement("w:bookmarkEnd");
+            Element bookmarkEnd = doc.createElement("w:bookmarkEnd");
             bookmarkEnd.setAttribute("w:id", bookmarkId.toString());
             
             // 查找第一个<w:r>节点
-            org.w3c.dom.Node firstRunNode = null;
-            org.w3c.dom.NodeList children = firstCTPElement.getChildNodes();
+            Node firstRunNode = null;
+            NodeList children = firstCTPElement.getChildNodes();
             for (int i = 0; i < children.getLength(); i++) {
-                org.w3c.dom.Node child = children.item(i);
-                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                Node child = children.item(i);
+                if (child.getNodeType() == Node.ELEMENT_NODE) {
                     String localName = child.getLocalName();
                     if ("r".equals(localName)) {
                         firstRunNode = child;
@@ -613,24 +617,24 @@ public class DocxUtils {
             
             // 直接使用DOM操作创建书签，避免orphaned问题
             org.w3c.dom.Document doc = firstParagraph.getDocument().getDocument().getDomNode().getOwnerDocument();
-            org.w3c.dom.Element firstCTPElement = (org.w3c.dom.Element) firstParagraph.getCTP().getDomNode();
-            org.w3c.dom.Element lastCTPElement = (org.w3c.dom.Element) lastParagraph.getCTP().getDomNode();
+            Element firstCTPElement = (Element) firstParagraph.getCTP().getDomNode();
+            Element lastCTPElement = (Element) lastParagraph.getCTP().getDomNode();
             
             // 创建bookmarkStart元素
-            org.w3c.dom.Element bookmarkStart = doc.createElement("w:bookmarkStart");
+            Element bookmarkStart = doc.createElement("w:bookmarkStart");
             bookmarkStart.setAttribute("w:name", bookmarkName);
             bookmarkStart.setAttribute("w:id", bookmarkId.toString());
             
             // 创建bookmarkEnd元素
-            org.w3c.dom.Element bookmarkEnd = doc.createElement("w:bookmarkEnd");
+            Element bookmarkEnd = doc.createElement("w:bookmarkEnd");
             bookmarkEnd.setAttribute("w:id", bookmarkId.toString());
             
             // 查找第一个<w:r>节点
-            org.w3c.dom.Node firstRunNode = null;
-            org.w3c.dom.NodeList children = firstCTPElement.getChildNodes();
+            Node firstRunNode = null;
+            NodeList children = firstCTPElement.getChildNodes();
             for (int i = 0; i < children.getLength(); i++) {
-                org.w3c.dom.Node child = children.item(i);
-                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                Node child = children.item(i);
+                if (child.getNodeType() == Node.ELEMENT_NODE) {
                     String localName = child.getLocalName();
                     if ("r".equals(localName)) {
                         firstRunNode = child;
@@ -856,13 +860,13 @@ public class DocxUtils {
             bookmarkEnd.setId(bookmarkId);
             
             // 使用DOM操作移动bookmarkStart到第一个Run之前
-            org.w3c.dom.Node bookmarkStartNode = bookmarkStart.getDomNode();
-            org.w3c.dom.Node firstRunNode = null;
+            Node bookmarkStartNode = bookmarkStart.getDomNode();
+            Node firstRunNode = null;
             
             // 查找第一个<w:r>节点
-            org.w3c.dom.NodeList children = ctp.getDomNode().getChildNodes();
+            NodeList children = ctp.getDomNode().getChildNodes();
             for (int i = 0; i < children.getLength(); i++) {
-                org.w3c.dom.Node child = children.item(i);
+                Node child = children.item(i);
                 if (child.getLocalName() != null && child.getLocalName().equals("r")) {
                     firstRunNode = child;
                     break;
@@ -932,17 +936,17 @@ public class DocxUtils {
     private static String extractContentBetweenBookmarks(XWPFParagraph paragraph, BigInteger bookmarkId) {
         try {
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             // 查找bookmarkStart节点
-            org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+            Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
             if (bookmarkStartNode == null) {
                 System.err.println("未找到bookmarkStart节点，ID: " + bookmarkId);
                 return "";
             }
             
             // 查找对应的bookmarkEnd节点（可能在当前段落或后续段落中）
-            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
+            Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
             if (bookmarkEndNode == null) {
                 System.err.println("未找到bookmarkEnd节点，ID: " + bookmarkId);
                 return "";
@@ -962,15 +966,15 @@ public class DocxUtils {
     /**
      * 查找指定ID的bookmarkStart节点
      */
-    private static org.w3c.dom.Node findBookmarkStartNode(org.w3c.dom.Node paragraphNode, BigInteger bookmarkId) {
-        org.w3c.dom.NodeList children = paragraphNode.getChildNodes();
+    private static Node findBookmarkStartNode(Node paragraphNode, BigInteger bookmarkId) {
+        NodeList children = paragraphNode.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            org.w3c.dom.Node child = children.item(i);
+            Node child = children.item(i);
             if (child.getLocalName() != null && child.getLocalName().equals("bookmarkStart")) {
                 // 检查ID是否匹配
-                org.w3c.dom.NamedNodeMap attributes = child.getAttributes();
+                NamedNodeMap attributes = child.getAttributes();
                 if (attributes != null) {
-                    org.w3c.dom.Node idAttr = attributes.getNamedItem("w:id");
+                    Node idAttr = attributes.getNamedItem("w:id");
                     if (idAttr != null) {
                         try {
                             BigInteger nodeId = new BigInteger(idAttr.getNodeValue());
@@ -990,10 +994,10 @@ public class DocxUtils {
     /**
      * 查找指定ID的bookmarkEnd节点
      */
-    private static org.w3c.dom.Node findBookmarkEndNode(org.w3c.dom.Node paragraphNode, BigInteger bookmarkId) {
-        org.w3c.dom.NodeList children = paragraphNode.getChildNodes();
+    private static Node findBookmarkEndNode(Node paragraphNode, BigInteger bookmarkId) {
+        NodeList children = paragraphNode.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            org.w3c.dom.Node child = children.item(i);
+            Node child = children.item(i);
             
             // 打印所有子节点信息用于调试
             System.out.println("🔍 检查子节点: " + child.getNodeName() + ", 本地名: " + child.getLocalName() + ", 类型: " + child.getNodeType());
@@ -1001,15 +1005,15 @@ public class DocxUtils {
             if (child.getLocalName() != null && child.getLocalName().equals("bookmarkEnd")) {
                 System.out.println("🎯 找到bookmarkEnd节点！");
                 // 检查ID是否匹配
-                org.w3c.dom.NamedNodeMap attributes = child.getAttributes();
+                NamedNodeMap attributes = child.getAttributes();
                 if (attributes != null) {
                     // 打印所有属性
                     for (int j = 0; j < attributes.getLength(); j++) {
-                        org.w3c.dom.Node attr = attributes.item(j);
+                        Node attr = attributes.item(j);
                         System.out.println("   属性: " + attr.getNodeName() + " = " + attr.getNodeValue());
                     }
                     
-                    org.w3c.dom.Node idAttr = attributes.getNamedItem("w:id");
+                    Node idAttr = attributes.getNamedItem("w:id");
                     if (idAttr != null) {
                         try {
                             BigInteger nodeId = new BigInteger(idAttr.getNodeValue());
@@ -1037,14 +1041,14 @@ public class DocxUtils {
      * 在整个文档中查找指定ID的bookmarkEnd节点
      * 支持跨段落的书签结构，包括段落外的bookmarkEnd节点
      */
-    private static org.w3c.dom.Node findBookmarkEndNodeInDocument(XWPFParagraph startParagraph, BigInteger bookmarkId) {
+    private static Node findBookmarkEndNodeInDocument(XWPFParagraph startParagraph, BigInteger bookmarkId) {
         try {
             System.out.println("🔍 查找bookmarkEnd节点，ID: " + bookmarkId);
             
             // 首先在当前段落中查找
             CTP ctp = startParagraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
-            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNode(paragraphNode, bookmarkId);
+            Node paragraphNode = ctp.getDomNode();
+            Node bookmarkEndNode = findBookmarkEndNode(paragraphNode, bookmarkId);
             if (bookmarkEndNode != null) {
                 System.out.println("✅ 在当前段落找到bookmarkEnd节点");
                 return bookmarkEndNode;
@@ -1075,7 +1079,7 @@ public class DocxUtils {
             for (int i = startIndex + 1; i < paragraphs.size(); i++) {
                 XWPFParagraph paragraph = paragraphs.get(i);
                 CTP paragraphCTP = paragraph.getCTP();
-                org.w3c.dom.Node paragraphNode2 = paragraphCTP.getDomNode();
+                Node paragraphNode2 = paragraphCTP.getDomNode();
                 
                 // 打印段落内容用于调试
                 String paragraphText = paragraph.getText();
@@ -1093,7 +1097,7 @@ public class DocxUtils {
             for (int i = 0; i <= startIndex; i++) {
                 XWPFParagraph paragraph = paragraphs.get(i);
                 CTP paragraphCTP = paragraph.getCTP();
-                org.w3c.dom.Node paragraphNode2 = paragraphCTP.getDomNode();
+                Node paragraphNode2 = paragraphCTP.getDomNode();
                 
                 // 打印段落内容用于调试
                 String paragraphText = paragraph.getText();
@@ -1110,7 +1114,7 @@ public class DocxUtils {
             System.out.println("🔍 检查文档主体中的直接子节点");
             try {
                 org.openxmlformats.schemas.wordprocessingml.x2006.main.CTDocument1 documentCT = document.getDocument();
-                org.w3c.dom.Node documentNode = documentCT.getDomNode();
+                Node documentNode = documentCT.getDomNode();
                 bookmarkEndNode = findBookmarkEndNodeInDocumentBody(documentNode, bookmarkId);
                 if (bookmarkEndNode != null) {
                     System.out.println("✅ 在文档主体中找到bookmarkEnd节点");
@@ -1132,17 +1136,17 @@ public class DocxUtils {
     /**
      * 在文档主体中查找bookmarkEnd节点
      */
-    private static org.w3c.dom.Node findBookmarkEndNodeInDocumentBody(org.w3c.dom.Node documentNode, BigInteger bookmarkId) {
-        org.w3c.dom.NodeList children = documentNode.getChildNodes();
+    private static Node findBookmarkEndNodeInDocumentBody(Node documentNode, BigInteger bookmarkId) {
+        NodeList children = documentNode.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            org.w3c.dom.Node child = children.item(i);
+            Node child = children.item(i);
             System.out.println("🔍 检查文档主体子节点: " + child.getNodeName() + ", 本地名: " + child.getLocalName());
             
             if (child.getLocalName() != null && child.getLocalName().equals("bookmarkEnd")) {
                 System.out.println("🎯 在文档主体中找到bookmarkEnd节点！");
-                org.w3c.dom.NamedNodeMap attributes = child.getAttributes();
+                NamedNodeMap attributes = child.getAttributes();
                 if (attributes != null) {
-                    org.w3c.dom.Node idAttr = attributes.getNamedItem("w:id");
+                    Node idAttr = attributes.getNamedItem("w:id");
                     if (idAttr != null) {
                         try {
                             BigInteger nodeId = new BigInteger(idAttr.getNodeValue());
@@ -1159,7 +1163,7 @@ public class DocxUtils {
             } else if (child.getLocalName() != null && child.getLocalName().equals("body")) {
                 // 如果找到body节点，递归搜索其子节点
                 System.out.println("🔍 在body节点中递归搜索bookmarkEnd");
-                org.w3c.dom.Node result = findBookmarkEndNodeInDocumentBody(child, bookmarkId);
+                Node result = findBookmarkEndNodeInDocumentBody(child, bookmarkId);
                 if (result != null) {
                     return result;
                 }
@@ -1172,17 +1176,17 @@ public class DocxUtils {
      * 提取两个节点之间的文本内容
      * 支持跨段落的书签内容提取
      */
-    private static String extractTextBetweenNodes(org.w3c.dom.Node startNode, org.w3c.dom.Node endNode) {
+    private static String extractTextBetweenNodes(Node startNode, Node endNode) {
         StringBuilder content = new StringBuilder();
         
         // 如果startNode和endNode在同一个段落中
         if (startNode.getParentNode().equals(endNode.getParentNode())) {
             // 从startNode的下一个兄弟节点开始，到endNode的前一个兄弟节点结束
-            org.w3c.dom.Node current = startNode.getNextSibling();
+            Node current = startNode.getNextSibling();
             while (current != null && !current.equals(endNode)) {
-                if (current.getNodeType() == org.w3c.dom.Node.TEXT_NODE) {
+                if (current.getNodeType() == Node.TEXT_NODE) {
                     content.append(current.getNodeValue());
-                } else if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                } else if (current.getNodeType() == Node.ELEMENT_NODE) {
                     // 如果是元素节点（如run），提取其中的文本
                     String text = extractTextFromElement(current);
                     if (!text.isEmpty()) {
@@ -1194,11 +1198,11 @@ public class DocxUtils {
         } else {
             // 跨段落的情况：从startNode开始，到endNode结束
             // 首先提取startNode所在段落中startNode之后的内容
-            org.w3c.dom.Node current = startNode.getNextSibling();
+            Node current = startNode.getNextSibling();
             while (current != null) {
-                if (current.getNodeType() == org.w3c.dom.Node.TEXT_NODE) {
+                if (current.getNodeType() == Node.TEXT_NODE) {
                     content.append(current.getNodeValue());
-                } else if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                } else if (current.getNodeType() == Node.ELEMENT_NODE) {
                     String text = extractTextFromElement(current);
                     if (!text.isEmpty()) {
                         content.append(text);
@@ -1208,12 +1212,12 @@ public class DocxUtils {
             }
             
             // 然后提取中间段落的完整内容
-            org.w3c.dom.Node startParent = startNode.getParentNode();
-            org.w3c.dom.Node endParent = endNode.getParentNode();
-            org.w3c.dom.Node currentParent = startParent.getNextSibling();
+            Node startParent = startNode.getParentNode();
+            Node endParent = endNode.getParentNode();
+            Node currentParent = startParent.getNextSibling();
             
             while (currentParent != null && !currentParent.equals(endParent)) {
-                if (currentParent.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                if (currentParent.getNodeType() == Node.ELEMENT_NODE) {
                     String text = extractTextFromElement(currentParent);
                     if (!text.isEmpty()) {
                         content.append(text);
@@ -1225,9 +1229,9 @@ public class DocxUtils {
             // 最后提取endNode所在段落中endNode之前的内容
             current = endParent.getFirstChild();
             while (current != null && !current.equals(endNode)) {
-                if (current.getNodeType() == org.w3c.dom.Node.TEXT_NODE) {
+                if (current.getNodeType() == Node.TEXT_NODE) {
                     content.append(current.getNodeValue());
-                } else if (current.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                } else if (current.getNodeType() == Node.ELEMENT_NODE) {
                     String text = extractTextFromElement(current);
                     if (!text.isEmpty()) {
                         content.append(text);
@@ -1243,14 +1247,14 @@ public class DocxUtils {
     /**
      * 从元素节点中提取文本内容
      */
-    private static String extractTextFromElement(org.w3c.dom.Node element) {
+    private static String extractTextFromElement(Node element) {
         StringBuilder text = new StringBuilder();
         
-        if (element.getNodeType() == org.w3c.dom.Node.TEXT_NODE) {
+        if (element.getNodeType() == Node.TEXT_NODE) {
             text.append(element.getNodeValue());
-        } else if (element.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+        } else if (element.getNodeType() == Node.ELEMENT_NODE) {
             // 递归提取子节点的文本
-            org.w3c.dom.NodeList children = element.getChildNodes();
+            NodeList children = element.getChildNodes();
             for (int i = 0; i < children.getLength(); i++) {
                 text.append(extractTextFromElement(children.item(i)));
             }
@@ -1263,22 +1267,22 @@ public class DocxUtils {
      * 提取书签之间的run节点（包含格式信息）
      * 修复：支持多段落书签，提取实际的XML run节点而不是纯文本，以保持所有格式
      */
-    private static List<org.w3c.dom.Node> extractRunNodesBetweenBookmarks(XWPFParagraph paragraph, BigInteger bookmarkId) {
-        List<org.w3c.dom.Node> runNodes = new ArrayList<>();
+    private static List<Node> extractRunNodesBetweenBookmarks(XWPFParagraph paragraph, BigInteger bookmarkId) {
+        List<Node> runNodes = new ArrayList<>();
         
         try {
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             // 查找bookmarkStart节点
-            org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+            Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
             if (bookmarkStartNode == null) {
                 System.err.println("未找到bookmarkStart节点，ID: " + bookmarkId);
                 return runNodes;
             }
             
             // 查找对应的bookmarkEnd节点（支持跨段落）
-            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
+            Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
             if (bookmarkEndNode == null) {
                 System.err.println("未找到bookmarkEnd节点，ID: " + bookmarkId);
                 return runNodes;
@@ -1305,11 +1309,11 @@ public class DocxUtils {
     private static void replaceContentBetweenBookmarks(XWPFParagraph paragraph, BigInteger bookmarkId, String newContent) {
         try {
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             // 查找bookmarkStart和bookmarkEnd节点
-            org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
-            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNode(paragraphNode, bookmarkId);
+            Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+            Node bookmarkEndNode = findBookmarkEndNode(paragraphNode, bookmarkId);
             
             if (bookmarkStartNode == null || bookmarkEndNode == null) {
                 System.err.println("无法找到书签标记，ID: " + bookmarkId);
@@ -1333,20 +1337,20 @@ public class DocxUtils {
      * 替换书签之间的内容为run节点（保持格式）
      * 修复：支持多段落书签，使用run节点替换内容以保持所有格式信息
      */
-    private static void replaceContentBetweenBookmarksWithRunNodes(XWPFParagraph paragraph, BigInteger bookmarkId, List<org.w3c.dom.Node> runNodes) {
+    private static void replaceContentBetweenBookmarksWithRunNodes(XWPFParagraph paragraph, BigInteger bookmarkId, List<Node> runNodes) {
         try {
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             // 查找bookmarkStart节点
-            org.w3c.dom.Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
+            Node bookmarkStartNode = findBookmarkStartNode(paragraphNode, bookmarkId);
             if (bookmarkStartNode == null) {
                 System.err.println("无法找到bookmarkStart节点，ID: " + bookmarkId);
                 return;
             }
             
             // 查找bookmarkEnd节点（支持跨段落）
-            org.w3c.dom.Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
+            Node bookmarkEndNode = findBookmarkEndNodeInDocument(paragraph, bookmarkId);
             if (bookmarkEndNode == null) {
                 System.err.println("无法找到bookmarkEnd节点，ID: " + bookmarkId);
                 return;
@@ -1371,10 +1375,10 @@ public class DocxUtils {
     /**
      * 删除两个书签标记之间的所有内容节点
      */
-    private static void removeContentBetweenBookmarks(org.w3c.dom.Node bookmarkStartNode, org.w3c.dom.Node bookmarkEndNode) {
-        org.w3c.dom.Node current = bookmarkStartNode.getNextSibling();
+    private static void removeContentBetweenBookmarks(Node bookmarkStartNode, Node bookmarkEndNode) {
+        Node current = bookmarkStartNode.getNextSibling();
         while (current != null && !current.equals(bookmarkEndNode)) {
-            org.w3c.dom.Node next = current.getNextSibling();
+            Node next = current.getNextSibling();
             // 只删除内容节点，保留书签标记
             if (current.getLocalName() != null && 
                 !current.getLocalName().equals("bookmarkStart") && 
@@ -1390,8 +1394,8 @@ public class DocxUtils {
      * 支持跨段落的书签内容删除
      */
     private static void removeContentBetweenBookmarksMultiParagraph(XWPFDocument document, 
-                                                                   org.w3c.dom.Node bookmarkStartNode, 
-                                                                   org.w3c.dom.Node bookmarkEndNode) {
+                                                                   Node bookmarkStartNode, 
+                                                                   Node bookmarkEndNode) {
         try {
             // 如果bookmarkStart和bookmarkEnd在同一个段落中
             if (bookmarkStartNode.getParentNode().equals(bookmarkEndNode.getParentNode())) {
@@ -1399,8 +1403,8 @@ public class DocxUtils {
                 removeContentBetweenBookmarks(bookmarkStartNode, bookmarkEndNode);
             } else {
                 // 多段落情况：需要删除中间段落和部分段落内容
-                org.w3c.dom.Node startParent = bookmarkStartNode.getParentNode();
-                org.w3c.dom.Node endParent = bookmarkEndNode.getParentNode();
+                Node startParent = bookmarkStartNode.getParentNode();
+                Node endParent = bookmarkEndNode.getParentNode();
                 
                 // 获取段落索引
                 int startParagraphIndex = findParagraphIndexContainingNode(document, startParent);
@@ -1410,9 +1414,9 @@ public class DocxUtils {
                     List<XWPFParagraph> paragraphs = document.getParagraphs();
                     
                     // 删除起始段落中bookmarkStart之后的内容
-                    org.w3c.dom.Node current = bookmarkStartNode.getNextSibling();
+                    Node current = bookmarkStartNode.getNextSibling();
                     while (current != null) {
-                        org.w3c.dom.Node next = current.getNextSibling();
+                        Node next = current.getNextSibling();
                         if (current.getLocalName() != null && 
                             !current.getLocalName().equals("bookmarkStart") && 
                             !current.getLocalName().equals("bookmarkEnd")) {
@@ -1425,29 +1429,29 @@ public class DocxUtils {
                     for (int i = startParagraphIndex + 1; i < endParagraphIndex; i++) {
                         XWPFParagraph paragraph = paragraphs.get(i);
                         CTP ctp = paragraph.getCTP();
-                        org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+                        Node paragraphNode = ctp.getDomNode();
                         
                         // 删除段落中的所有内容，但保留段落结构
-                        org.w3c.dom.NodeList children = paragraphNode.getChildNodes();
-                        List<org.w3c.dom.Node> nodesToRemove = new ArrayList<>();
+                        NodeList children = paragraphNode.getChildNodes();
+                        List<Node> nodesToRemove = new ArrayList<>();
                         for (int j = 0; j < children.getLength(); j++) {
-                            org.w3c.dom.Node child = children.item(j);
+                            Node child = children.item(j);
                             if (child.getLocalName() != null && 
                                 !child.getLocalName().equals("pPr")) { // 保留段落属性
                                 nodesToRemove.add(child);
                             }
                         }
                         
-                        for (org.w3c.dom.Node node : nodesToRemove) {
+                        for (Node node : nodesToRemove) {
                             paragraphNode.removeChild(node);
                         }
                     }
                     
                     // 删除结束段落中bookmarkEnd之前的内容
                     if (startParagraphIndex != endParagraphIndex) {
-                        org.w3c.dom.Node endCurrent = endParent.getFirstChild();
+                        Node endCurrent = endParent.getFirstChild();
                         while (endCurrent != null && !endCurrent.equals(bookmarkEndNode)) {
-                            org.w3c.dom.Node next = endCurrent.getNextSibling();
+                            Node next = endCurrent.getNextSibling();
                             if (endCurrent.getLocalName() != null && 
                                 !endCurrent.getLocalName().equals("bookmarkStart") && 
                                 !endCurrent.getLocalName().equals("bookmarkEnd")) {
@@ -1469,14 +1473,14 @@ public class DocxUtils {
     /**
      * 在bookmarkStart之后插入新内容
      */
-    private static void insertContentAfterBookmarkStart(XWPFParagraph paragraph, org.w3c.dom.Node bookmarkStartNode, String newContent) {
+    private static void insertContentAfterBookmarkStart(XWPFParagraph paragraph, Node bookmarkStartNode, String newContent) {
         try {
             // 创建新的run来包含内容
             XWPFRun newRun = paragraph.createRun();
             newRun.setText(newContent);
             
             // 获取新run的DOM节点
-            org.w3c.dom.Node newRunNode = newRun.getCTR().getDomNode();
+            Node newRunNode = newRun.getCTR().getDomNode();
             
             // 将新run插入到bookmarkStart之后
             bookmarkStartNode.getParentNode().insertBefore(newRunNode, bookmarkStartNode.getNextSibling());
@@ -1490,15 +1494,15 @@ public class DocxUtils {
      * 在bookmarkStart之后插入run节点（保持格式）
      * 修复：克隆run节点以保持所有格式信息，并保持正确的顺序
      */
-    private static void insertRunNodesAfterBookmarkStart(XWPFParagraph paragraph, org.w3c.dom.Node bookmarkStartNode, List<org.w3c.dom.Node> runNodes) {
+    private static void insertRunNodesAfterBookmarkStart(XWPFParagraph paragraph, Node bookmarkStartNode, List<Node> runNodes) {
         try {
             org.w3c.dom.Document ownerDocument = bookmarkStartNode.getOwnerDocument();
-            org.w3c.dom.Node parentNode = bookmarkStartNode.getParentNode();
-            org.w3c.dom.Node insertAfterNode = bookmarkStartNode;
+            Node parentNode = bookmarkStartNode.getParentNode();
+            Node insertAfterNode = bookmarkStartNode;
             
-            for (org.w3c.dom.Node runNode : runNodes) {
+            for (Node runNode : runNodes) {
                 // 深度克隆run节点以保持所有格式属性
-                org.w3c.dom.Node clonedRunNode = runNode.cloneNode(true);
+                Node clonedRunNode = runNode.cloneNode(true);
                 
                 // 如果节点来自不同的文档，需要导入到当前文档
                 if (!ownerDocument.equals(runNode.getOwnerDocument())) {
@@ -1530,8 +1534,8 @@ public class DocxUtils {
      * 处理单段落和多段落内容的插入
      */
     private static void insertParagraphNodesAfterBookmarkStart(XWPFDocument document, 
-                                                              org.w3c.dom.Node bookmarkStartNode, 
-                                                              List<org.w3c.dom.Node> paragraphNodes) {
+                                                              Node bookmarkStartNode, 
+                                                              List<Node> paragraphNodes) {
         try {
             // 检查是否是多段落内容（包含段落节点）
             boolean isMultiParagraph = paragraphNodes.stream()
@@ -1560,8 +1564,8 @@ public class DocxUtils {
      * 插入多段落内容到文档中
      */
     private static void insertMultiParagraphContent(XWPFDocument document, 
-                                                   org.w3c.dom.Node bookmarkStartNode, 
-                                                   List<org.w3c.dom.Node> paragraphNodes) {
+                                                   Node bookmarkStartNode, 
+                                                   List<Node> paragraphNodes) {
         try {
             // 找到bookmarkStart所在的段落
             XWPFParagraph startParagraph = findParagraphContainingNode(document, bookmarkStartNode);
@@ -1587,23 +1591,23 @@ public class DocxUtils {
             
             // 在起始段落之后插入新的段落
             for (int i = 0; i < paragraphNodes.size(); i++) {
-                org.w3c.dom.Node paragraphNode = paragraphNodes.get(i);
+                Node paragraphNode = paragraphNodes.get(i);
                 
                 // 创建新段落
                 XWPFParagraph newParagraph = document.createParagraph();
                 CTP newCTP = newParagraph.getCTP();
                 
                 // 克隆段落节点内容到新段落
-                org.w3c.dom.Node clonedNode = paragraphNode.cloneNode(true);
+                Node clonedNode = paragraphNode.cloneNode(true);
                 org.w3c.dom.Document ownerDocument = newCTP.getDomNode().getOwnerDocument();
                 if (!ownerDocument.equals(clonedNode.getOwnerDocument())) {
                     clonedNode = ownerDocument.importNode(clonedNode, true);
                 }
                 
                 // 将克隆的段落内容添加到新段落
-                org.w3c.dom.NodeList children = clonedNode.getChildNodes();
+                NodeList children = clonedNode.getChildNodes();
                 for (int j = 0; j < children.getLength(); j++) {
-                    org.w3c.dom.Node child = children.item(j);
+                    Node child = children.item(j);
                     newCTP.getDomNode().appendChild(child.cloneNode(true));
                 }
                 
@@ -1623,12 +1627,12 @@ public class DocxUtils {
     /**
      * 查找包含指定节点的段落
      */
-    private static XWPFParagraph findParagraphContainingNode(XWPFDocument document, org.w3c.dom.Node targetNode) {
+    private static XWPFParagraph findParagraphContainingNode(XWPFDocument document, Node targetNode) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
         
         for (XWPFParagraph paragraph : paragraphs) {
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             if (isNodeContainedIn(paragraphNode, targetNode)) {
                 return paragraph;
@@ -1706,7 +1710,7 @@ public class DocxUtils {
                     }
                     
                     // 合并所有段落的run节点
-                    List<org.w3c.dom.Node> allRunNodes = new ArrayList<>();
+                    List<Node> allRunNodes = new ArrayList<>();
                     for (ParagraphContent content : paragraphContents) {
                         allRunNodes.addAll(content.getRunNodes());
                     }
@@ -1782,16 +1786,16 @@ public class DocxUtils {
      * 替换段落内容为run节点（保持格式）
      * 用于多段落书签的中间段落
      */
-    private static void replaceParagraphContentWithRunNodes(XWPFParagraph paragraph, List<org.w3c.dom.Node> runNodes) {
+    private static void replaceParagraphContentWithRunNodes(XWPFParagraph paragraph, List<Node> runNodes) {
         try {
             CTP ctp = paragraph.getCTP();
-            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            Node paragraphNode = ctp.getDomNode();
             
             // 删除段落中的所有内容节点（保留段落属性）
-            List<org.w3c.dom.Node> nodesToRemove = new ArrayList<>();
+            List<Node> nodesToRemove = new ArrayList<>();
             for (int i = 0; i < paragraphNode.getChildNodes().getLength(); i++) {
-                org.w3c.dom.Node child = paragraphNode.getChildNodes().item(i);
-                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                Node child = paragraphNode.getChildNodes().item(i);
+                if (child.getNodeType() == Node.ELEMENT_NODE) {
                     String localName = child.getLocalName();
                     // 保留段落属性节点，删除其他内容节点
                     if (!"pPr".equals(localName)) {
@@ -1800,13 +1804,13 @@ public class DocxUtils {
                 }
             }
             
-            for (org.w3c.dom.Node node : nodesToRemove) {
+            for (Node node : nodesToRemove) {
                 paragraphNode.removeChild(node);
             }
             
             // 插入新的run节点
-            for (org.w3c.dom.Node runNode : runNodes) {
-                org.w3c.dom.Node importedNode = paragraphNode.getOwnerDocument().importNode(runNode, true);
+            for (Node runNode : runNodes) {
+                Node importedNode = paragraphNode.getOwnerDocument().importNode(runNode, true);
                 paragraphNode.appendChild(importedNode);
             }
             
@@ -1821,7 +1825,7 @@ public class DocxUtils {
      * 为书签设置run节点内容（保持格式）
      * 修复：使用run节点设置内容以保持所有格式信息
      */
-    private static void setBookmarkContentFromRunNodes(XWPFDocument document, String bookmarkName, List<org.w3c.dom.Node> runNodes) {
+    private static void setBookmarkContentFromRunNodes(XWPFDocument document, String bookmarkName, List<Node> runNodes) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
         
         for (XWPFParagraph paragraph : paragraphs) {

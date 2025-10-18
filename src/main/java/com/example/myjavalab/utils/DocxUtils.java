@@ -763,6 +763,11 @@ public class DocxUtils {
                     }
                 }
                 
+                // 复制段落样式ID（如标题1、标题2等）
+                if (sourceCTP.getPPr().getPStyle() != null) {
+                    targetCTP.getPPr().addNewPStyle().setVal(sourceCTP.getPPr().getPStyle().getVal());
+                }
+                
                 // 复制其他段落属性（如对齐方式、间距等）
                 if (sourceCTP.getPPr().getJc() != null) {
                     targetCTP.getPPr().setJc(sourceCTP.getPPr().getJc());
@@ -1734,6 +1739,16 @@ public class DocxUtils {
                                  ")与目标段落数(" + targetParagraphCount + ")不匹配");
             }
             
+            // 获取书签ID（只在第一个段落中查找）
+            BigInteger bookmarkId = null;
+            if (startIndex < paragraphs.size()) {
+                bookmarkId = getBookmarkId(paragraphs.get(startIndex), bookmarkName);
+            }
+            
+            if (bookmarkId == null) {
+                throw new IllegalStateException("无法找到书签ID: " + bookmarkName);
+            }
+            
             // 为每个目标段落设置对应的源段落内容
             for (int i = 0; i < Math.min(paragraphContents.size(), targetParagraphCount); i++) {
                 int targetParagraphIndex = startIndex + i;
@@ -1741,11 +1756,12 @@ public class DocxUtils {
                     XWPFParagraph targetParagraph = paragraphs.get(targetParagraphIndex);
                     ParagraphContent sourceContent = paragraphContents.get(i);
                     
-                    // 获取目标段落中书签的ID
-                    BigInteger bookmarkId = getBookmarkId(targetParagraph, bookmarkName);
-                    if (bookmarkId != null) {
-                        // 替换内容
+                    if (i == 0) {
+                        // 第一个段落：替换bookmarkStart和bookmarkEnd之间的内容
                         replaceContentBetweenBookmarksWithRunNodes(targetParagraph, bookmarkId, sourceContent.getRunNodes());
+                    } else {
+                        // 中间段落：直接替换整个段落的内容
+                        replaceParagraphContentWithRunNodes(targetParagraph, sourceContent.getRunNodes());
                     }
                 }
             }
@@ -1754,6 +1770,45 @@ public class DocxUtils {
             
         } catch (Exception e) {
             throw new IllegalStateException("设置多段落书签内容失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 替换段落内容为run节点（保持格式）
+     * 用于多段落书签的中间段落
+     */
+    private static void replaceParagraphContentWithRunNodes(XWPFParagraph paragraph, List<org.w3c.dom.Node> runNodes) {
+        try {
+            CTP ctp = paragraph.getCTP();
+            org.w3c.dom.Node paragraphNode = ctp.getDomNode();
+            
+            // 删除段落中的所有内容节点（保留段落属性）
+            List<org.w3c.dom.Node> nodesToRemove = new ArrayList<>();
+            for (int i = 0; i < paragraphNode.getChildNodes().getLength(); i++) {
+                org.w3c.dom.Node child = paragraphNode.getChildNodes().item(i);
+                if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                    String localName = child.getLocalName();
+                    // 保留段落属性节点，删除其他内容节点
+                    if (!"pPr".equals(localName)) {
+                        nodesToRemove.add(child);
+                    }
+                }
+            }
+            
+            for (org.w3c.dom.Node node : nodesToRemove) {
+                paragraphNode.removeChild(node);
+            }
+            
+            // 插入新的run节点
+            for (org.w3c.dom.Node runNode : runNodes) {
+                org.w3c.dom.Node importedNode = paragraphNode.getOwnerDocument().importNode(runNode, true);
+                paragraphNode.appendChild(importedNode);
+            }
+            
+            System.out.println("✅ 段落内容已替换为run节点，保持格式");
+            
+        } catch (Exception e) {
+            System.err.println("替换段落内容为run节点失败: " + e.getMessage());
         }
     }
     
@@ -1962,31 +2017,48 @@ public class DocxUtils {
     private static boolean compareBookmarkParagraphStyles(XWPFDocument document, String bookmarkName1, String bookmarkName2) {
         BookmarkRange range1 = findBookmarkRange(document, bookmarkName1);
         BookmarkRange range2 = findBookmarkRange(document, bookmarkName2);
-        
+
+        System.out.println("🔍 比较书签段落样式 - " + bookmarkName1 + " vs " + bookmarkName2);
+        System.out.println("📝 " + bookmarkName1 + " 范围: " + range1);
+        System.out.println("📝 " + bookmarkName2 + " 范围: " + range2);
+
         if (range1.isNotFound() || range2.isNotFound()) {
+            System.out.println("❌ 书签未找到");
             return false;
         }
-        
+
         // 检查段落数量是否相同
         int count1 = range1.getEndParagraphIndex() - range1.getStartParagraphIndex() + 1;
         int count2 = range2.getEndParagraphIndex() - range2.getStartParagraphIndex() + 1;
-        
+
+        System.out.println("📝 " + bookmarkName1 + " 段落数: " + count1);
+        System.out.println("📝 " + bookmarkName2 + " 段落数: " + count2);
+
         if (count1 != count2) {
+            System.out.println("❌ 段落数量不同");
             return false;
         }
-        
+
         // 比较每个对应段落的样式
         List<XWPFParagraph> paragraphs = document.getParagraphs();
-        
+
         for (int i = 0; i < count1; i++) {
-            XWPFParagraph para1 = paragraphs.get(range1.getStartParagraphIndex() + i);
-            XWPFParagraph para2 = paragraphs.get(range2.getStartParagraphIndex() + i);
-            
+            int index1 = range1.getStartParagraphIndex() + i;
+            int index2 = range2.getStartParagraphIndex() + i;
+            XWPFParagraph para1 = paragraphs.get(index1);
+            XWPFParagraph para2 = paragraphs.get(index2);
+
+            System.out.println("📋 比较第 " + i + " 个段落: 索引 " + index1 + " vs " + index2);
+
             if (!compareParagraphStyles(para1, para2)) {
+                System.out.println("❌ 第 " + i + " 个段落样式不同");
                 return false;
             }
+
+            System.out.println("✅ 第 " + i + " 个段落样式相同");
         }
-        
+
+        System.out.println("✅ 所有段落样式都相同");
         return true;
     }
     
@@ -1997,52 +2069,124 @@ public class DocxUtils {
      * @return 样式是否一致
      */
     private static boolean compareParagraphStyles(XWPFParagraph para1, XWPFParagraph para2) {
+        // 获取段落内容用于日志输出
+        String content1 = getParagraphText(para1);
+        String content2 = getParagraphText(para2);
+        
         // 比较段落对齐方式
         if (para1.getAlignment() != para2.getAlignment()) {
+            System.out.println("❌ 段落对齐方式不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1对齐: " + para1.getAlignment());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2对齐: " + para2.getAlignment());
             return false;
         }
-        
+
         // 比较段落间距
         if (para1.getSpacingBefore() != para2.getSpacingBefore()) {
+            System.out.println("❌ 段前间距不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1段前间距: " + para1.getSpacingBefore());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2段前间距: " + para2.getSpacingBefore());
             return false;
         }
         if (para1.getSpacingAfter() != para2.getSpacingAfter()) {
+            System.out.println("❌ 段后间距不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1段后间距: " + para1.getSpacingAfter());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2段后间距: " + para2.getSpacingAfter());
             return false;
         }
         if (para1.getSpacingBetween() != para2.getSpacingBetween()) {
+            System.out.println("❌ 行间距不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1行间距: " + para1.getSpacingBetween());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2行间距: " + para2.getSpacingBetween());
             return false;
         }
-        
+
         // 比较段落缩进
         if (para1.getIndentationLeft() != para2.getIndentationLeft()) {
+            System.out.println("❌ 左缩进不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1左缩进: " + para1.getIndentationLeft());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2左缩进: " + para2.getIndentationLeft());
             return false;
         }
         if (para1.getIndentationRight() != para2.getIndentationRight()) {
+            System.out.println("❌ 右缩进不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1右缩进: " + para1.getIndentationRight());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2右缩进: " + para2.getIndentationRight());
             return false;
         }
         if (para1.getIndentationFirstLine() != para2.getIndentationFirstLine()) {
+            System.out.println("❌ 首行缩进不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1首行缩进: " + para1.getIndentationFirstLine());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2首行缩进: " + para2.getIndentationFirstLine());
             return false;
         }
         if (para1.getIndentationHanging() != para2.getIndentationHanging()) {
+            System.out.println("❌ 悬挂缩进不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1悬挂缩进: " + para1.getIndentationHanging());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2悬挂缩进: " + para2.getIndentationHanging());
             return false;
         }
-        
+
         // 比较编号样式
         if (para1.getNumID() != para2.getNumID()) {
+            System.out.println("❌ 编号ID不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1编号ID: " + para1.getNumID());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2编号ID: " + para2.getNumID());
             return false;
         }
         if (para1.getNumIlvl() != para2.getNumIlvl()) {
+            System.out.println("❌ 编号级别不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1编号级别: " + para1.getNumIlvl());
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2编号级别: " + para2.getNumIlvl());
             return false;
         }
-        
+
         // 比较段落样式ID
         String style1 = para1.getStyle();
         String style2 = para2.getStyle();
         if ((style1 == null && style2 != null) || (style1 != null && !style1.equals(style2))) {
+            System.out.println("❌ 段落样式ID不同:");
+            System.out.println("   段落1内容: \"" + content1 + "\"");
+            System.out.println("   段落1样式ID: '" + style1 + "'");
+            System.out.println("   段落2内容: \"" + content2 + "\"");
+            System.out.println("   段落2样式ID: '" + style2 + "'");
             return false;
         }
-        
+
         return true;
+    }
+    
+    /**
+     * 获取段落的文本内容
+     * @param paragraph 段落对象
+     * @return 段落文本内容
+     */
+    private static String getParagraphText(XWPFParagraph paragraph) {
+        if (paragraph == null) {
+            return "";
+        }
+        String text = paragraph.getText();
+        return text != null ? text.trim() : "";
     }
 
 }
